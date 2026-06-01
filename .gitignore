@@ -3,3 +3,7 @@
 *.txt
 *gz
 *pth
+._*
+
+# Datasets (downloaded via torchvision, never tracked)
+data/
