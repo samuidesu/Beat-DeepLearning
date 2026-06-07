@@ -7,3 +7,4 @@
 
 # Datasets (downloaded via torchvision, never tracked)
 data/
+__pycache__/
