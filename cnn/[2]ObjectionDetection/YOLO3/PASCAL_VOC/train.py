@@ -51,6 +51,12 @@ def set_seed(seed: int = 42):
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
+    # Seeding alone doesn't make CUDA runs repeatable: benchmark mode lets
+    # cuDNN autotune conv algorithms (picking different, sometimes
+    # nondeterministic kernels per run). Force the deterministic ones, at
+    # some training-speed cost.
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
 
 def seed_worker(worker_id):
