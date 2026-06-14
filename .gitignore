@@ -4,7 +4,11 @@
 *gz
 *pth
 ._*
-
+*.DS_Store
 # Datasets (downloaded via torchvision, never tracked)
 data/
 __pycache__/
+
+# Detection outputs (regenerated fresh on every detect.py run)
+# `**/` so it also matches the nested cnn/.../PASCAL_VOC/detect/results/ folder.
+**/detect/results/

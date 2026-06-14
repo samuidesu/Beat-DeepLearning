@@ -30,7 +30,8 @@ def _class_colors(n: int):
 _COLORS = _class_colors(config.NUM_CLASSES)
 
 
-def draw_detections(image: Image.Image, dets, class_names=config.VOC_CLASSES) -> Image.Image:
+def draw_detections(image: Image.Image, dets, class_names=config.VOC_CLASSES,
+                    show_score: bool = True) -> Image.Image:
     """Draw detection boxes + labels onto a copy of `image`.
 
     Input:
@@ -38,6 +39,8 @@ def draw_detections(image: Image.Image, dets, class_names=config.VOC_CLASSES) ->
         dets: tensor/array [K, 6] = [x1, y1, x2, y2, score, label], with box
               coordinates already in THIS image's pixel space.
         class_names: list mapping class id -> name.
+        show_score: if True, the label reads "name 0.87"; if False, just "name".
+              Set False when drawing ground-truth boxes (which have no score).
 
     Output:
         a new PIL image with the boxes drawn.
@@ -54,7 +57,7 @@ def draw_detections(image: Image.Image, dets, class_names=config.VOC_CLASSES) ->
         label = int(label)
         color = _COLORS[label % len(_COLORS)]
         name = class_names[label] if 0 <= label < len(class_names) else str(label)
-        text = f"{name} {score:.2f}"
+        text = f"{name} {score:.2f}" if show_score else name
 
         # Box.
         draw.rectangle([x1, y1, x2, y2], outline=color, width=2)
