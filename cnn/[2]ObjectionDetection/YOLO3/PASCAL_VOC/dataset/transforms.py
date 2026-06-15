@@ -17,6 +17,7 @@ import random
 import torch
 import torchvision.transforms.functional as TF
 from torchvision import transforms as tvt
+from PIL import Image
 
 
 class Compose:
@@ -65,6 +66,88 @@ class RandomHorizontalFlip:
         return img, boxes
 
 
+class RandomAffine:
+    """Random scale + translation jitter, keeping boxes in sync.
+
+    Operates on the already-square PIL image (run it after Resize). This adds
+    the positional/scale variety that plain flip + color jitter lack -- the
+    main lever against the objectness head overfitting to object *positions*
+    (train_obj collapses while val_obj climbs).
+
+    Each call samples a scale `s` and a pixel translation (tx, ty) and applies
+    the forward map  x' = s*x + bx,  y' = s*y + by  to both the image and the
+    box corners. `bx/by` keep the image centered (plus the random shift), so at
+    s=1, t=0 this is the identity. Boxes are clipped to the frame and dropped if
+    too little of them survives the crop.
+
+    Args:
+        scale: (min, max) multiplicative scale range. <1 zooms out (gray pad),
+               >1 zooms in (crops the borders).
+        translate: max shift as a fraction of image size, each axis.
+        p: probability of applying the transform at all.
+        fill: RGB pad color for revealed borders (114 = standard YOLO gray).
+        min_visibility: drop a box if its clipped area is below this fraction
+                        of its pre-clip (scaled) area.
+        min_size_px: also drop boxes thinner than this many pixels.
+    """
+
+    def __init__(self, scale=(0.8, 1.2), translate=0.1, p=1.0,
+                 fill=(114, 114, 114), min_visibility=0.2, min_size_px=2):
+        self.scale = scale
+        self.translate = translate
+        self.p = p
+        self.fill = fill
+        self.min_visibility = min_visibility
+        self.min_size_px = min_size_px
+
+    def __call__(self, img, boxes):
+        if random.random() >= self.p:
+            return img, boxes
+        S = img.size[0]  # square after Resize: width == height
+
+        # Sample the forward map x' = s*x + bx (and likewise for y).
+        s = random.uniform(self.scale[0], self.scale[1])
+        max_t = self.translate * S
+        bx = (1.0 - s) * S / 2.0 + random.uniform(-max_t, max_t)
+        by = (1.0 - s) * S / 2.0 + random.uniform(-max_t, max_t)
+
+        # PIL wants the INVERSE map (dest -> src): x = (x' - bx) / s.
+        inv = (1.0 / s, 0.0, -bx / s,
+               0.0, 1.0 / s, -by / s)
+        img = img.transform((S, S), Image.AFFINE, inv,
+                            resample=Image.BILINEAR, fillcolor=self.fill)
+
+        if boxes.numel() == 0:
+            return img, boxes
+
+        # Move box corners with the same forward map (in pixel space).
+        cx, cy = boxes[:, 1] * S, boxes[:, 2] * S
+        w, h = boxes[:, 3] * S, boxes[:, 4] * S
+        x1, y1 = s * (cx - w / 2) + bx, s * (cy - h / 2) + by
+        x2, y2 = s * (cx + w / 2) + bx, s * (cy + h / 2) + by
+
+        area_before = (x2 - x1) * (y2 - y1)            # pre-clip scaled area
+        x1c, y1c = x1.clamp(0, S), y1.clamp(0, S)
+        x2c, y2c = x2.clamp(0, S), y2.clamp(0, S)
+        new_w, new_h = (x2c - x1c), (y2c - y1c)
+        area_after = new_w * new_h
+
+        keep = (
+            (new_w >= self.min_size_px)
+            & (new_h >= self.min_size_px)
+            & (area_after >= self.min_visibility * area_before.clamp(min=1e-6))
+        )
+
+        new = torch.stack([
+            boxes[:, 0],                       # class id (unchanged)
+            (x1c + x2c) / 2 / S,               # cx
+            (y1c + y2c) / 2 / S,               # cy
+            new_w / S,                         # w
+            new_h / S,                         # h
+        ], dim=1)
+        return img, new[keep]
+
+
 class ColorJitter:
     """Randomly perturb brightness/contrast/saturation/hue (image only)."""
 
@@ -110,8 +193,16 @@ def get_train_transforms(img_size: int, mean, std) -> Compose:
     """
     return Compose([
         Resize(img_size),
+        # Geometric jitter: scale + translate. The key augmentation for
+        # detection -- it varies object position/size so the model can't just
+        # memorize where objects sit. Widened from (0.8,1.2)/0.1 to fight the
+        # late-stage overfitting seen at stage2=50 (train_total << val_total).
+        # Tune scale/translate if it over/under-fits.
+        RandomAffine(scale=(0.7, 1.3), translate=0.15),
         RandomHorizontalFlip(p=0.5),
-        ColorJitter(),
+        # Photometric jitter, strengthened from the 0.2 defaults for the same
+        # anti-overfit reason (hue kept small -- large hue shifts hurt).
+        ColorJitter(brightness=0.4, contrast=0.4, saturation=0.4, hue=0.1),
         ToTensor(),
         Normalize(mean, std),
     ])

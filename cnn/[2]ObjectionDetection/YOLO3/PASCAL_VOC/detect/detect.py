@@ -58,8 +58,8 @@ def parse_args():
     src.add_argument("--dir", help="path to a folder of images")
     src.add_argument("--voc-random", type=int, metavar="N",
                      help="randomly sample N images from the VOC2007 test split")
-    p.add_argument("--seed", type=int, default=config.SEED,
-                   help="random seed for --voc-random sampling (for reproducibility)")
+    p.add_argument("--seed", type=int, default=None,
+                   help="optional random seed for reproducible --voc-random sampling")
     p.add_argument("--weights", default=f"{config.OUTPUT_DIR}/best.pt")
     p.add_argument("--out", default=_RESULTS_DIR,
                    help="output folder (wiped and recreated fresh each run)")
@@ -79,7 +79,7 @@ def sample_voc_test(n, seed):
 
     Input:
         n: how many images to sample (capped at the split size).
-        seed: RNG seed so the same `n` images are picked on every run.
+        seed: optional RNG seed. None gives a different sample each run.
     Output:
         sorted list of image file paths (length <= n).
     """
@@ -87,8 +87,8 @@ def sample_voc_test(n, seed):
     split_file = os.path.join(voc07, "ImageSets", "Main", "test.txt")
     with open(split_file) as f:
         ids = [line.strip() for line in f if line.strip()]
-    # Seeded shuffle -> take the first n. Using random.Random(seed) keeps the
-    # global RNG untouched and makes the selection reproducible.
+    # A supplied seed makes sampling reproducible; None uses system randomness.
+    # A local RNG keeps the global random state untouched.
     random.Random(seed).shuffle(ids)
     ids = ids[:n]
     img_dir = os.path.join(voc07, "JPEGImages")

@@ -18,6 +18,8 @@ Output layout per scale is [B, num_anchors, H, W, 5 + num_classes], which makes
 the loss easy to write (slice the last dim).
 """
 
+import math
+
 import torch
 import torch.nn as nn
 
@@ -51,6 +53,27 @@ class YOLOHead(nn.Module):
         # 1x1 conv maps to the raw predictions. Plain Conv2d (bias=True, no BN,
         # no activation) because these are regression values / logits.
         self.pred = nn.Conv2d(in_ch * 2, num_anchors * self.num_outputs, kernel_size=1)
+
+        self._init_obj_bias(prior=0.01)
+
+    def _init_obj_bias(self, prior: float = 0.01):
+        """Bias-init the objectness logit to a low prior (the RetinaNet trick).
+
+        Default init leaves the objectness bias at ~0, so the head starts by
+        predicting sigmoid(0)=0.5 objectness on EVERY cell (~10k per image).
+        With the large negative/positive imbalance the model can't suppress all
+        that background, and you get a flood of high-confidence false positives.
+        Starting the objectness logit at log(prior/(1-prior)) instead means the
+        head begins assuming "background everywhere" (P(obj)=prior=0.01) and only
+        raises objectness where there's evidence -- the key fix for precision.
+
+        The pred conv's output channels are laid out per anchor as
+        [tx, ty, tw, th, obj, cls...], so the objectness channel is index 4
+        within each anchor's block of `num_outputs`.
+        """
+        with torch.no_grad():
+            b = self.pred.bias.view(self.num_anchors, self.num_outputs)
+            b[:, 4].fill_(math.log(prior / (1.0 - prior)))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Run the head on one feature map.

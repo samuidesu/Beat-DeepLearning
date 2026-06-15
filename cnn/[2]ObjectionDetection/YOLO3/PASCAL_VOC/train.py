@@ -34,6 +34,7 @@ import config
 from models.yolov3 import YOLOv3
 from losses.yolo_loss import YOLOLoss
 from dataset.voc import VOCDataset, voc_collate_fn, download_voc
+from utils.metrics import compute_map
 
 try:
     from tqdm import tqdm
@@ -205,7 +206,7 @@ def run_stage(stage_id, model, train_loader, val_loader, criterion, optimizer,
     Input:
         stage_id: 1 or 2 (recorded in the history for plotting).
         history: list of per-epoch dict records, appended in place.
-        best: dict {"val_total": float, "epoch": int} tracking the best model.
+        best: dict {"map_50": float, "epoch": int} tracking the best model.
         ckpt_dir: directory to save best.pt / last.pt.
 
     Output:
@@ -222,6 +223,10 @@ def run_stage(stage_id, model, train_loader, val_loader, criterion, optimizer,
         lr = optimizer.param_groups[0]["lr"]
         train_metrics = train_one_epoch(model, train_loader, criterion, optimizer, device, desc)
         val_metrics = evaluate(model, val_loader, criterion, device)
+        # mAP on the val set (decode + NMS + COCO-style AP). This is the metric
+        # we actually care about; val loss alone can disagree with it.
+        map_metrics = compute_map(model, val_loader, device,
+                                  max_batches=config.MAP_EVAL_MAX_BATCHES, verbose=False)
         if scheduler is not None:
             scheduler.step()
 
@@ -232,6 +237,9 @@ def run_stage(stage_id, model, train_loader, val_loader, criterion, optimizer,
             "time_sec": round(time.time() - t0, 1),
             **{f"train_{k}": v for k, v in train_metrics.items()},
             **{f"val_{k}": v for k, v in val_metrics.items()},
+            "map": map_metrics["map"],
+            "map_50": map_metrics["map_50"],
+            "map_75": map_metrics["map_75"],
         }
         history.append(record)
 
@@ -239,14 +247,20 @@ def run_stage(stage_id, model, train_loader, val_loader, criterion, optimizer,
             f"{desc}  lr={lr:.2e}  "
             f"train_total={train_metrics.get('total', 0):.4f}  "
             f"val_total={val_metrics.get('total', 0):.4f}  "
+            f"mAP@0.5={map_metrics['map_50']:.4f}  "
             f"({record['time_sec']}s)"
         )
 
-        # Checkpoint: always save 'last', save 'best' on val improvement.
+        # Checkpoint: always save 'last', save 'best' on mAP@0.5 improvement.
+        # We select on mAP (the metric we care about) rather than val loss --
+        # the two can disagree, and a lower val loss doesn't guarantee better
+        # detections. NOTE: this is the biased MAP_EVAL_MAX_BATCHES proxy, but
+        # it's measured on the same val images every epoch, so ranking epochs by
+        # it is consistent; the final best.pt mAP is still computed in full.
         torch.save(model.state_dict(), os.path.join(ckpt_dir, "last.pt"))
-        val_total = val_metrics.get("total", float("inf"))
-        if val_total < best["val_total"]:
-            best["val_total"] = val_total
+        cur_map = map_metrics["map_50"]
+        if cur_map > best["map_50"]:
+            best["map_50"] = cur_map
             best["epoch"] = global_epoch
             torch.save(model.state_dict(), os.path.join(ckpt_dir, "best.pt"))
 
@@ -268,7 +282,11 @@ def plot_curves(history, output_dir):
     Produces:
         loss_curve.png       - train vs. val TOTAL loss per epoch.
         loss_components.png  - train box/obj/noobj/cls losses per epoch.
+        map_curve.png        - val mAP / mAP@0.5 / mAP@0.75 per epoch.
     A dashed vertical line marks the stage-1 -> stage-2 boundary.
+
+    Note: the per-epoch mAP is the (biased) proxy over the first
+    config.MAP_EVAL_MAX_BATCHES val batches, not the full-set number.
     """
     if not history:
         return
@@ -308,6 +326,27 @@ def plot_curves(history, output_dir):
     plt.tight_layout()
     plt.savefig(os.path.join(output_dir, "loss_components.png"), dpi=150)
     plt.close()
+
+    # ---- Figure 3: val mAP curves ----
+    # Only plot if mAP was actually logged (older runs may not have it).
+    if any("map_50" in r for r in history):
+        plt.figure(figsize=(8, 5))
+        for key, label in (("map_50", "mAP@0.5"),
+                           ("map", "mAP@[.5:.95]"),
+                           ("map_75", "mAP@0.75")):
+            if any(key in r for r in history):
+                plt.plot(epochs, [r.get(key, 0) for r in history], label=label)
+        if stage2_start is not None:
+            plt.axvline(stage2_start - 0.5, color="gray", ls="--", label="stage 2 start")
+        plt.xlabel("epoch")
+        plt.ylabel("mAP")
+        plt.ylim(bottom=0)
+        plt.title("YOLOv3 val mAP")
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        plt.tight_layout()
+        plt.savefig(os.path.join(output_dir, "map_curve.png"), dpi=150)
+        plt.close()
 
 
 # -----------------------------------------------------------------------------
@@ -385,7 +424,7 @@ def main():
     ).to(device)
 
     history = []
-    best = {"val_total": float("inf"), "epoch": -1}
+    best = {"map_50": -1.0, "epoch": -1}
 
     # ---- Stage 1: freeze backbone, train neck + head ----
     if args.epochs_stage1 > 0:
@@ -411,13 +450,12 @@ def main():
     # ---- Save logs + curves ----
     save_log(history, config.OUTPUT_DIR)
     plot_curves(history, config.OUTPUT_DIR)
-    print(f"\nDone. Best val_total={best['val_total']:.4f} @ epoch {best['epoch']}")
+    print(f"\nDone. Best mAP@0.5={best['map_50']:.4f} @ epoch {best['epoch']}")
     print(f"Artifacts written to: {config.OUTPUT_DIR}")
 
     # ---- Final mAP on the best checkpoint ----
     best_path = os.path.join(config.OUTPUT_DIR, "best.pt")
     if os.path.exists(best_path):
-        from utils.metrics import compute_map
         model.load_state_dict(torch.load(best_path, map_location=device))
         print("\nComputing mAP on VOC2007 test (best checkpoint)...")
         compute_map(model, val_loader, device)

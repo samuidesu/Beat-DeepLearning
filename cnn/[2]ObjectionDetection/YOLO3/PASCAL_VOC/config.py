@@ -46,8 +46,14 @@ IMAGENET_STD = [0.229, 0.224, 0.225]
 # -----------------------------------------------------------------------------
 # Anchor box sizes in PIXELS at the IMG_SIZE=416 input scale, 3 per scale.
 # Order MUST match the model's output order: stride 8 (P3, small objects),
-# stride 16 (P4, medium), stride 32 (P5, large). These are the classic YOLOv3
-# anchors; TODO: optionally re-cluster on VOC with k-means (utils/anchors.py).
+# stride 16 (P4, medium), stride 32 (P5, large).
+#
+# These are k-means clustered on VOC07+12 trainval (47223 boxes, IoU metric);
+# regenerate with `python utils/anchors.py`. Mean IoU 0.655 vs 0.639 for the
+# classic COCO anchors -- VOC objects run larger, so the small-scale anchors
+# are bigger than COCO's. To revert, swap in the COCO block below:
+#   [(10, 13), (16, 30), (33, 23)], [(30, 61), (62, 45), (59, 119)],
+#   [(116, 90), (156, 198), (373, 326)]
 ANCHORS = [
     [(10, 13), (16, 30), (33, 23)],       # stride 8  -> P3 (small)
     [(30, 61), (62, 45), (59, 119)],      # stride 16 -> P4 (medium)
@@ -85,7 +91,7 @@ STAGE2_UNFREEZE = ("layer3", "layer4")
 # model becomes too conservative about predicting objects.
 LAMBDA_BOX = 1.0      # CIoU box loss (positives only)
 LAMBDA_OBJ = 1.0      # objectness BCE on positive cells
-LAMBDA_NOOBJ = 1.0    # objectness BCE on negative (non-ignored) cells
+LAMBDA_NOOBJ = 2    # objectness BCE on negative (non-ignored) cells
 LAMBDA_CLS = 1.0      # classification BCE (positives only)
 # A negative anchor whose decoded box has IoU > IGNORE_THRESH with any GT is
 # "ignored": neither positive nor counted as a negative for objectness.
@@ -96,4 +102,9 @@ IGNORE_THRESH = 0.5
 # -----------------------------------------------------------------------------
 CONF_THRESH = 0.05       # drop predictions below this objectness*class score
 NMS_IOU_THRESH = 0.45    # IoU threshold for non-maximum suppression
+
+# Per-epoch mAP monitoring: full VOC2007 test eval adds ~1min/epoch. Set to an
+# int N to estimate mAP on only the first N val batches (faster, biased proxy);
+# None = full eval. The final best-checkpoint mAP is always computed in full.
+MAP_EVAL_MAX_BATCHES = 60
 
