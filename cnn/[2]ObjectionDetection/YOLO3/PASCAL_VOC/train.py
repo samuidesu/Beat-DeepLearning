@@ -28,6 +28,7 @@ import matplotlib.pyplot as plt
 
 import torch
 import torch.optim as optim
+import torch.nn.functional as F
 from torch.utils.data import DataLoader, ConcatDataset
 
 import config
@@ -146,10 +147,26 @@ def train_one_epoch(model, loader, criterion, optimizer, device, epoch_desc=""):
     # Keep frozen BatchNorm layers in eval mode (model.train() just re-enabled them).
     model.set_bn_eval_on_frozen()
 
+    # Multi-scale training: re-pick a random square input size every few batches
+    # so the backbone can't memorize absolute object scales (config.MULTISCALE_*).
+    ms_sizes = list(range(config.MULTISCALE_MIN, config.MULTISCALE_MAX + 1, 32))
+    cur_size = config.IMG_SIZE
+
     running, seen = {}, 0
-    for images, targets in tqdm(loader, desc=epoch_desc, leave=False):
+    for i, (images, targets) in enumerate(tqdm(loader, desc=epoch_desc, leave=False)):
         images = images.to(device, non_blocking=True)
         targets = targets.to(device, non_blocking=True)
+
+        # Resize the whole batch to the current multi-scale size. Boxes are
+        # normalized [0,1] so they need no change; the loss/anchors are also in
+        # normalized coords, so they work at any input size. Eval is untouched.
+        if config.MULTISCALE_TRAIN:
+            if i % config.MULTISCALE_INTERVAL == 0:
+                cur_size = random.choice(ms_sizes)
+            if cur_size != images.shape[-1]:
+                images = F.interpolate(images, size=(cur_size, cur_size),
+                                       mode="bilinear", align_corners=False)
+
         bs = images.size(0)
 
         # Forward -> 3 raw prediction tensors; loss reduces them against targets.
@@ -415,7 +432,7 @@ def main():
     # ---- Model + loss ----
     model = YOLOv3(num_classes=config.NUM_CLASSES,
                    num_anchors=config.NUM_ANCHORS_PER_SCALE,
-                   pretrained=True).to(device)
+                   pretrained=True, backbone=config.BACKBONE).to(device)
     # .to(device) moves the loss's anchor buffers onto the GPU too; without this
     # they stay on CPU and cause a device-mismatch on CUDA/MPS.
     criterion = YOLOLoss(
@@ -439,7 +456,10 @@ def main():
     # ---- Stage 2: unfreeze high backbone layers, finetune ----
     if args.epochs_stage2 > 0:
         print(f"\n=== Stage 2: unfreeze {config.STAGE2_UNFREEZE}, finetune ===")
-        model.unfreeze_backbone_high(config.STAGE2_UNFREEZE)
+        if config.STAGE2_UNFREEZE == "all":
+            model.unfreeze_backbone_all()
+        else:
+            model.unfreeze_backbone_high(config.STAGE2_UNFREEZE)
         print(f"Trainable params: {count_trainable(model):.2f}M")
         optimizer = build_stage2_optimizer(
             model, config.STAGE2_LR_HEAD, config.STAGE2_LR_BACKBONE, config.WEIGHT_DECAY)

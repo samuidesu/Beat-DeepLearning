@@ -19,35 +19,54 @@ C3/C4/C5 are the three feature maps handed to the neck (FPN).
 
 import torch
 import torch.nn as nn
-from torchvision.models import resnet18, ResNet18_Weights
+from torchvision.models import (
+    resnet18, ResNet18_Weights,
+    resnet34, ResNet34_Weights,
+)
+
+# Supported backbones -> (constructor, weights enum, (C3, C4, C5) tap channels).
+# ResNet-18 and -34 both use BasicBlock, so their tap channels are identical
+# (128/256/512); only the number of blocks per stage differs. (ResNet-50+ use
+# Bottleneck -> 512/1024/2048; add here with the right channels to support them.)
+_RESNET_ARCHS = {
+    "resnet18": (resnet18, ResNet18_Weights, (128, 256, 512)),
+    "resnet34": (resnet34, ResNet34_Weights, (128, 256, 512)),
+}
 
 
-class ResNet18Backbone(nn.Module):
-    """ResNet-18 backbone that returns 3 multi-scale feature maps.
+class ResNetBackbone(nn.Module):
+    """ResNet backbone (resnet18 / resnet34) -> 3 multi-scale feature maps.
 
     Args:
+        arch (str): which ResNet, "resnet18" or "resnet34". Both share the same
+            tap channels, so the neck/head need no change when switching.
         pretrained (bool): if True, load ImageNet-pretrained weights.
         freeze (bool): if True, freeze all backbone parameters (stage-1 of a
             two-stage finetune: train only neck/heads first, unfreeze later).
 
     Attributes:
         out_channels (tuple[int, int, int]): channel counts of (C3, C4, C5),
-            i.e. (128, 256, 512). The neck reads this to size its own convs.
+            e.g. (128, 256, 512). The neck reads this to size its own convs.
         strides (tuple[int, int, int]): the strides (8, 16, 32) of (C3, C4, C5).
     """
 
-    # Output channel counts and strides of the 3 taps. Fixed by ResNet-18.
-    out_channels = (128, 256, 512)
+    # Strides of the 3 taps (fixed by the ResNet layout). out_channels depends
+    # on the arch and is set per-instance in __init__.
     strides = (8, 16, 32)
 
-    def __init__(self, pretrained: bool = True, freeze: bool = False):
+    def __init__(self, arch: str = "resnet18", pretrained: bool = True, freeze: bool = False):
         super().__init__()
+        if arch not in _RESNET_ARCHS:
+            raise ValueError(
+                f"unsupported backbone {arch!r}; choose from {list(_RESNET_ARCHS)}")
+        ctor, weights_enum, self.out_channels = _RESNET_ARCHS[arch]
+        self.arch = arch
 
-        # ---- Load the torchvision ResNet-18 ----------------------------------
-        # ResNet18_Weights.DEFAULT == the best available ImageNet weights.
+        # ---- Load the torchvision ResNet ------------------------------------
+        # <Weights>.DEFAULT == the best available ImageNet weights.
         # weights=None gives a randomly-initialized network.
-        weights = ResNet18_Weights.DEFAULT if pretrained else None
-        net = resnet18(weights=weights)
+        weights = weights_enum.DEFAULT if pretrained else None
+        net = ctor(weights=weights)
 
         # ---- Split ResNet-18 into the pieces we need -------------------------
         # "stem" = everything before the residual stages: conv1 -> bn1 -> relu
@@ -134,7 +153,7 @@ class ResNet18Backbone(nn.Module):
 # ---- Quick self-test: run this file directly to verify output shapes --------
 # python models/backbone.py
 if __name__ == "__main__":
-    model = ResNet18Backbone(pretrained=False)  # no download for a shape check
+    model = ResNetBackbone(arch="resnet34", pretrained=False)  # no download for a shape check
     dummy = torch.randn(2, 3, 416, 416)         # a fake batch of 2 images
     c3, c4, c5 = model(dummy)
     print("c3:", tuple(c3.shape), "(expected (2, 128, 52, 52))")

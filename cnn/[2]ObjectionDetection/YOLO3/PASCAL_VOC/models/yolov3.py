@@ -16,11 +16,11 @@ import torch.nn as nn
 # Package-relative imports when used as `models.yolov3`; plain imports when this
 # file is run directly as a script.
 try:
-    from .backbone import ResNet18Backbone
+    from .backbone import ResNetBackbone
     from .neck import FPNNeck
     from .head import DetectionHead
 except ImportError:
-    from backbone import ResNet18Backbone
+    from backbone import ResNetBackbone
     from neck import FPNNeck
     from head import DetectionHead
 
@@ -32,15 +32,18 @@ class YOLOv3(nn.Module):
         num_classes (int): number of object classes (VOC = 20).
         num_anchors (int): anchors per scale (default 3).
         pretrained (bool): load ImageNet-pretrained backbone weights.
+        backbone (str): backbone arch, "resnet18" or "resnet34".
     """
 
-    def __init__(self, num_classes: int = 20, num_anchors: int = 3, pretrained: bool = True):
+    def __init__(self, num_classes: int = 20, num_anchors: int = 3,
+                 pretrained: bool = True, backbone: str = "resnet18"):
         super().__init__()
         self.num_classes = num_classes
         self.num_anchors = num_anchors
 
-        # Backbone -> 3 feature maps (strides 8/16/32, channels 128/256/512).
-        self.backbone = ResNet18Backbone(pretrained=pretrained)
+        # Backbone -> 3 feature maps (strides 8/16/32). resnet18/34 share the
+        # same tap channels (128/256/512), so neck/head are unaffected by arch.
+        self.backbone = ResNetBackbone(arch=backbone, pretrained=pretrained)
         # Neck fuses them top-down -> channels (64, 128, 256).
         self.neck = FPNNeck(in_channels=self.backbone.out_channels)
         # Heads -> raw predictions per scale.
@@ -75,6 +78,13 @@ class YOLOv3(nn.Module):
     def unfreeze_backbone_high(self, layers=("layer3", "layer4")):
         """Stage 2: unfreeze the high backbone stages (e.g. layer3/layer4)."""
         self.backbone.unfreeze_high_layers(layers)
+
+    def unfreeze_backbone_all(self):
+        """Stage 2 (full finetune): unfreeze the ENTIRE backbone (stem + all
+        layers) so the pretrained features can fully adapt to detection. This is
+        the main lever once neck/head are warmed up and the (otherwise frozen)
+        backbone is the accuracy bottleneck."""
+        self.backbone.unfreeze()
 
     def set_bn_eval_on_frozen(self):
         """Keep BatchNorm layers whose params are frozen in eval mode.

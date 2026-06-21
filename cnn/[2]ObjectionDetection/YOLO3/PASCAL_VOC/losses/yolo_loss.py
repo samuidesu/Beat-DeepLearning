@@ -4,16 +4,21 @@ The loss has three parts, summed over the 3 detection scales:
 
   box  loss : CIoU loss, computed ONLY on positive anchors (the anchor/cell
               assigned to a ground-truth box).
-  obj  loss : BCEWithLogits on the objectness logit, computed on positives
-              (target 1) and negatives (target 0). Negative anchors whose
-              decoded box has high IoU (> ignore_thresh) with some GT are
-              IGNORED -- they are neither positive nor counted as negative.
+  obj  loss : sigmoid focal loss (down-weights easy cells) or plain BCE, per
+              config.FOCAL_OBJ, on the objectness logit -- positives (target 1)
+              and negatives (target 0). Negative anchors whose decoded box has
+              high IoU (> ignore_thresh) with some GT are IGNORED -- neither
+              positive nor counted as negative.
   cls  loss : BCEWithLogits per class, computed ONLY on positive anchors.
 
-Target assignment (which anchor is "positive"):
-  Each GT box is matched to the single best of the 9 anchors by shape IoU
-  (wh_iou). That anchor's scale + the grid cell containing the GT center become
-  the positive sample. This is the original YOLOv3 assignment rule.
+Target assignment (which anchors are "positive"):
+  Each GT box is matched to EVERY one of the 9 anchors whose shape IoU (wh_iou)
+  exceeds anchor_match_thresh, plus its single best anchor as a fallback so each
+  GT always gets >= 1 positive. Each matched anchor's scale + the grid cell
+  containing the GT center becomes a positive sample. This "multi-anchor" rule
+  densifies positives vs. the original single-best-anchor YOLOv3 rule (more
+  supervision -> better recall / localization). Setting the threshold to 1.0
+  recovers the original single-best behavior.
 
 All box math is done in NORMALIZED [0,1] image coordinates so predictions and
 targets live in the same space.
@@ -55,7 +60,10 @@ class YOLOLoss(nn.Module):
                  img_size=config.IMG_SIZE,
                  lambda_box=config.LAMBDA_BOX, lambda_obj=config.LAMBDA_OBJ,
                  lambda_noobj=config.LAMBDA_NOOBJ, lambda_cls=config.LAMBDA_CLS,
-                 ignore_thresh=config.IGNORE_THRESH):
+                 ignore_thresh=config.IGNORE_THRESH,
+                 anchor_match_thresh=config.ANCHOR_MATCH_THRESH,
+                 focal_obj=config.FOCAL_OBJ, focal_gamma=config.FOCAL_GAMMA,
+                 focal_alpha=config.FOCAL_ALPHA):
         super().__init__()
         self.num_classes = num_classes
         self.img_size = img_size
@@ -65,6 +73,11 @@ class YOLOLoss(nn.Module):
         self.lambda_noobj = lambda_noobj
         self.lambda_cls = lambda_cls
         self.ignore_thresh = ignore_thresh
+        self.anchor_match_thresh = anchor_match_thresh
+        # Objectness focal loss (down-weights easy examples; see config).
+        self.focal_obj = focal_obj
+        self.focal_gamma = focal_gamma
+        self.focal_alpha = focal_alpha
 
         # Anchors normalized to [0,1] (divide pixel sizes by img_size), shaped
         # [num_scales, num_anchors_per_scale, 2]. Registered as a buffer so it
@@ -73,6 +86,25 @@ class YOLOLoss(nn.Module):
         self.register_buffer("anchors_norm", anchors_t)          # [S, A, 2]
         self.register_buffer("all_anchors_norm", anchors_t.view(-1, 2))  # [S*A, 2]
         self.num_anchors_per_scale = anchors_t.shape[1]
+
+    def _obj_loss_map(self, logits, targets):
+        """Per-element objectness loss: sigmoid focal loss (if self.focal_obj)
+        or plain BCE-with-logits. No reduction -- returns a [B, A, H, W] map.
+
+        Focal = alpha_t * (1 - p_t)^gamma * BCE, where p_t is the predicted
+        probability of the TRUE label and alpha_t = alpha for positives,
+        (1 - alpha) for negatives. The (1 - p_t)^gamma factor down-weights easy
+        (already-confident) cells so the gradient concentrates on hard ones;
+        alpha balances positives vs negatives. gamma=0, alpha=0.5 -> plain BCE.
+        """
+        bce = F.binary_cross_entropy_with_logits(logits, targets, reduction="none")
+        if not self.focal_obj:
+            return bce
+        p = torch.sigmoid(logits)
+        p_t = p * targets + (1.0 - p) * (1.0 - targets)        # prob of true label
+        focal = (1.0 - p_t) ** self.focal_gamma
+        alpha_t = self.focal_alpha * targets + (1.0 - self.focal_alpha) * (1.0 - targets)
+        return alpha_t * focal * bce
 
     def forward(self, predictions, targets):
         """Compute the total loss and a per-component breakdown.
@@ -91,17 +123,21 @@ class YOLOLoss(nn.Module):
         device = predictions[0].device
         A = self.num_anchors_per_scale
 
-        # ---- Match every GT to its single best anchor (across all 9) --------
+        # ---- Match every GT to all anchors above the shape-IoU threshold ----
         M = targets.shape[0]
         if M > 0:
             gt_img = targets[:, 0].long()       # [M] which image in the batch
             gt_cls = targets[:, 1].long()       # [M] class id
             gt_xywh = targets[:, 2:6]           # [M, 4] normalized cx,cy,w,h
-            # Shape IoU between each GT and all 9 anchors -> pick the best anchor.
+            # Shape IoU between each GT and all 9 anchors.
             ious = wh_iou(gt_xywh[:, 2:4], self.all_anchors_norm)  # [M, 9]
-            best = ious.argmax(dim=1)           # [M] index in 0..8
-            best_scale = best // A              # which scale (0,1,2)
-            best_a = best % A                   # which anchor within the scale
+            # Multi-anchor matching: a GT is positive on EVERY anchor whose shape
+            # IoU exceeds the threshold (not just the single best), which
+            # densifies positives. The best anchor is forced on as a fallback so
+            # every GT keeps >= 1 positive even if all its IoUs are below it.
+            best = ious.argmax(dim=1)                          # [M] index 0..8
+            anchor_match = ious > self.anchor_match_thresh     # [M, 9] bool
+            anchor_match[torch.arange(M, device=device), best] = True
 
         # Accumulators (tensors so gradients flow through the sums).
         box_sum = torch.zeros((), device=device)
@@ -142,12 +178,12 @@ class YOLOLoss(nn.Module):
             tcls = torch.zeros((B, A, H, W), dtype=torch.long, device=device)
 
             if M > 0:
-                # GTs whose best anchor lives on this scale.
-                idxs = (best_scale == s).nonzero(as_tuple=False).squeeze(1)
-                for i in idxs.tolist():
+                # (gt, anchor) pairs matched to THIS scale's block of anchors.
+                match_s = anchor_match[:, s * A:(s + 1) * A]      # [M, A]
+                gt_idx, a_idx = match_s.nonzero(as_tuple=True)    # each [K]
+                for i, a in zip(gt_idx.tolist(), a_idx.tolist()):
                     b = int(gt_img[i])
-                    a = int(best_a[i])
-                    cx, cy, w, h = gt_xywh[i]
+                    cx, cy = gt_xywh[i, 0], gt_xywh[i, 1]
                     # Grid cell that contains the GT center (clamp to be safe).
                     gi = min(int(cx.item() * W), W - 1)
                     gj = min(int(cy.item() * H), H - 1)
@@ -187,8 +223,8 @@ class YOLOLoss(nn.Module):
             n_pos += int(obj_mask.sum().item())
 
             # --- Objectness loss (positives + non-ignored negatives) ---
-            obj_loss_map = F.binary_cross_entropy_with_logits(
-                pred_obj, obj_mask.float(), reduction="none")  # [B,A,H,W]
+            # Sigmoid focal loss (down-weights easy cells) or plain BCE per config.
+            obj_loss_map = self._obj_loss_map(pred_obj, obj_mask.float())  # [B,A,H,W]
             neg_mask = (~obj_mask) & (~ignore_mask)
             obj_pos_sum = obj_pos_sum + obj_loss_map[obj_mask].sum()
             obj_neg_sum = obj_neg_sum + obj_loss_map[neg_mask].sum()
@@ -198,8 +234,12 @@ class YOLOLoss(nn.Module):
         n_pos_safe = max(n_pos, 1)
         box = box_sum / n_pos_safe                       # mean (1 - CIoU)
         cls = cls_sum / (n_pos_safe * self.num_classes)  # mean per-class BCE
-        obj_pos = obj_pos_sum / n_pos_safe               # mean BCE on positives
-        obj_neg = obj_neg_sum / max(n_neg, 1)            # mean BCE on negatives
+        obj_pos = obj_pos_sum / n_pos_safe               # mean obj loss on positives
+        # Focal loss normalizes by #positives (RetinaNet convention): the
+        # (1-p_t)^gamma factor already silences easy negatives, so dividing by
+        # n_neg would re-dilute the hard ones we just emphasized. Plain BCE keeps
+        # the classic per-negative mean.
+        obj_neg = obj_neg_sum / (n_pos_safe if self.focal_obj else max(n_neg, 1))
 
         total = (self.lambda_box * box
                  + self.lambda_obj * obj_pos

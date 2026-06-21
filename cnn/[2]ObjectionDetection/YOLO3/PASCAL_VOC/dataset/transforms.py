@@ -195,14 +195,12 @@ def get_train_transforms(img_size: int, mean, std) -> Compose:
         Resize(img_size),
         # Geometric jitter: scale + translate. The key augmentation for
         # detection -- it varies object position/size so the model can't just
-        # memorize where objects sit. Widened from (0.8,1.2)/0.1 to fight the
-        # late-stage overfitting seen at stage2=50 (train_total << val_total).
-        # Tune scale/translate if it over/under-fits.
-        RandomAffine(scale=(0.7, 1.3), translate=0.15),
+        # memorize where objects sit. Tune scale/translate if it over/under-fits.
+        # (Tried widening to (0.7,1.3)/0.15 + stronger color jitter to fight the
+        # late-stage overfitting; it did NOT raise mAP, so reverted to these.)
+        RandomAffine(scale=(0.8, 1.2), translate=0.1),
         RandomHorizontalFlip(p=0.5),
-        # Photometric jitter, strengthened from the 0.2 defaults for the same
-        # anti-overfit reason (hue kept small -- large hue shifts hurt).
-        ColorJitter(brightness=0.4, contrast=0.4, saturation=0.4, hue=0.1),
+        ColorJitter(),
         ToTensor(),
         Normalize(mean, std),
     ])
