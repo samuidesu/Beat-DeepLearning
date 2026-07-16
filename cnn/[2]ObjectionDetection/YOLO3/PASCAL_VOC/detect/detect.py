@@ -199,7 +199,8 @@ def main():
     # Build model + load weights.
     model = YOLOv3(num_classes=config.NUM_CLASSES,
                    num_anchors=config.NUM_ANCHORS_PER_SCALE,
-                   pretrained=False, backbone=config.BACKBONE).to(device)
+                   pretrained=False, backbone=config.BACKBONE,
+                   neck_channels=config.NECK_CHANNELS).to(device)
     state = torch.load(args.weights, map_location=device)
     model.load_state_dict(state)
     model.eval()

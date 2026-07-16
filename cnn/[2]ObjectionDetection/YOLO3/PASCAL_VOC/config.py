@@ -82,6 +82,13 @@ NUM_ANCHORS_PER_SCALE = 3
 # (128/256/512), so the neck/head are unchanged when switching.
 BACKBONE = "resnet34"
 
+# Neck (FPN) output widths (P3, P4, P5); these also set the detection-head
+# widths. The lean default is (64, 128, 256). P3 (stride 8) is the small-object
+# scale and was the thinnest -- thickening it to (128, 192, 256) gives the main
+# remaining weak classes (bottle/pottedplant/cow/sheep, all small/clustered)
+# more capacity. p4 and p5 must be even. Revert to (64, 128, 256) to compare.
+NECK_CHANNELS = (128, 192, 256)
+
 # -----------------------------------------------------------------------------
 # Training
 # -----------------------------------------------------------------------------

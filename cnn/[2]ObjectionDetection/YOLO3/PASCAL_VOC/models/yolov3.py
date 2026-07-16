@@ -33,10 +33,12 @@ class YOLOv3(nn.Module):
         num_anchors (int): anchors per scale (default 3).
         pretrained (bool): load ImageNet-pretrained backbone weights.
         backbone (str): backbone arch, "resnet18" or "resnet34".
+        neck_channels (tuple): neck/head widths (P3, P4, P5).
     """
 
     def __init__(self, num_classes: int = 20, num_anchors: int = 3,
-                 pretrained: bool = True, backbone: str = "resnet18"):
+                 pretrained: bool = True, backbone: str = "resnet18",
+                 neck_channels=(64, 128, 256)):
         super().__init__()
         self.num_classes = num_classes
         self.num_anchors = num_anchors
@@ -44,8 +46,10 @@ class YOLOv3(nn.Module):
         # Backbone -> 3 feature maps (strides 8/16/32). resnet18/34 share the
         # same tap channels (128/256/512), so neck/head are unaffected by arch.
         self.backbone = ResNetBackbone(arch=backbone, pretrained=pretrained)
-        # Neck fuses them top-down -> channels (64, 128, 256).
-        self.neck = FPNNeck(in_channels=self.backbone.out_channels)
+        # Neck fuses them top-down -> neck_channels (P3, P4, P5); the detection
+        # heads auto-size to match.
+        self.neck = FPNNeck(in_channels=self.backbone.out_channels,
+                            out_channels=neck_channels)
         # Heads -> raw predictions per scale.
         self.head = DetectionHead(
             in_channels=self.neck.out_channels,

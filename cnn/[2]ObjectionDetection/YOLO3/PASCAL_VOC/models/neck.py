@@ -69,19 +69,21 @@ class FPNNeck(nn.Module):
 
     Args:
         in_channels: channel counts of the backbone outputs (c3, c4, c5).
-            Defaults to ResNet-18's (128, 256, 512).
+            Defaults to ResNet-18/34's (128, 256, 512).
+        out_channels: neck output widths (p3, p4, p5). Default (64, 128, 256);
+            thicken (esp. p3, the small-object scale) for more detection-side
+            capacity. p4 and p5 must be even (the lateral convs halve them).
 
     Attributes:
-        out_channels (tuple[int,int,int]): channels of (p3, p4, p5) =
-            (64, 128, 256). The detection heads read this.
+        out_channels (tuple[int,int,int]): the (p3, p4, p5) widths in use; the
+            detection heads read this.
     """
 
-    out_channels = (64, 128, 256)  # (P3, P4, P5)
-
-    def __init__(self, in_channels=(128, 256, 512)):
+    def __init__(self, in_channels=(128, 256, 512), out_channels=(64, 128, 256)):
         super().__init__()
-        c3, c4, c5 = in_channels          # backbone widths: 128, 256, 512
-        p3, p4, p5 = self.out_channels    # neck widths:      64, 128, 256
+        self.out_channels = tuple(out_channels)   # (P3, P4, P5) widths
+        c3, c4, c5 = in_channels                   # backbone widths
+        p3, p4, p5 = self.out_channels             # neck widths
 
         # --- Stride-32 branch (deepest): just compress c5 ---------------------
         self.conv_set5 = ConvSet(c5, p5)              # 512 -> 256

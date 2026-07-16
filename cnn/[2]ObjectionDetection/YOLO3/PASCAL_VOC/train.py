@@ -252,6 +252,7 @@ def run_stage(stage_id, model, train_loader, val_loader, criterion, optimizer,
             "stage": stage_id,
             "lr": lr,
             "time_sec": round(time.time() - t0, 1),
+            "timestamp": time.strftime("%m-%d %H:%M:%S"),  # wall-clock at epoch end
             **{f"train_{k}": v for k, v in train_metrics.items()},
             **{f"val_{k}": v for k, v in val_metrics.items()},
             "map": map_metrics["map"],
@@ -261,7 +262,7 @@ def run_stage(stage_id, model, train_loader, val_loader, criterion, optimizer,
         history.append(record)
 
         print(
-            f"{desc}  lr={lr:.2e}  "
+            f"[{record['timestamp']}] {desc}  lr={lr:.2e}  "
             f"train_total={train_metrics.get('total', 0):.4f}  "
             f"val_total={val_metrics.get('total', 0):.4f}  "
             f"mAP@0.5={map_metrics['map_50']:.4f}  "
@@ -432,7 +433,8 @@ def main():
     # ---- Model + loss ----
     model = YOLOv3(num_classes=config.NUM_CLASSES,
                    num_anchors=config.NUM_ANCHORS_PER_SCALE,
-                   pretrained=True, backbone=config.BACKBONE).to(device)
+                   pretrained=True, backbone=config.BACKBONE,
+                   neck_channels=config.NECK_CHANNELS).to(device)
     # .to(device) moves the loss's anchor buffers onto the GPU too; without this
     # they stay on CPU and cause a device-mismatch on CUDA/MPS.
     criterion = YOLOLoss(
