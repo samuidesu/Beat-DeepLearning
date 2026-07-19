@@ -5,7 +5,7 @@
 
 - 训练集:VOC2007 trainval + VOC2012 trainval(~16.5k 张)
 - 验证集:VOC2007 test(4952 张,标准协议)
-- 结果:**mAP@0.5 ≈ 0.72**(峰值 0.7197 @ epoch 74 = `best.pt`)——**显著超过 YOLO3 版的 0.603(+0.117,≈+19%)**,详见下方"结果"一节
+- 结果:训练 proxy **mAP@0.5 ≈ 0.72**(峰值 0.7197 @ epoch 74 = `best.pt`);全量 `eval_per_class.py` 复核 **mAP@0.5 = 0.6890**(VOC2007 test 4952 张,`best.pt`)——仍显著超过 YOLO3 版的 0.603,详见下方"结果"一节
 
 > 这是按 FCOS *思想* 实现的(anchor-free 逐位置回归、centerness、按尺度范围分层)。原论文用 P3–P7 五层 / 800px 输入;这里为了与 YOLO3 复现可比,保持 416 输入 + P3–P5 三层。
 
@@ -17,11 +17,41 @@
 
 | 指标 | FCOS(本项目) | YOLO3 对照 | 差 |
 |---|---|---|---|
-| mAP@0.5 | **0.7197**(ep74,`best.pt`) | 0.603 | **+0.117(≈+19%)** |
+| mAP@0.5(proxy) | **0.7197**(ep74,`best.pt`) | 0.603 | **+0.117(≈+19%)** |
+| mAP@0.5(全量 `eval_per_class.py`) | **0.6890**(`best.pt`) | 0.603 | **+0.086(≈+14%)** |
 | mAP@0.75 | 0.493 | 0.355 | +0.138 |
 | mAP@[.5:.95] | 0.466 | 0.346 | +0.120 |
 
-> 口径说明:FCOS 列是训练日志的 per-epoch mAP,即前 60 个 val batch 的 **proxy**(`MAP_EVAL_MAX_BATCHES=60`),与全量 `eval.py` 可差 ±0.01–0.02;YOLO3 列是全量数。全量复核待跑(权重在云端)。
+> 口径说明:0.7197 是训练日志的 per-epoch mAP,即前 60 个 val batch 的 **proxy**(`MAP_EVAL_MAX_BATCHES=60`);0.6890 是 2026-07-19 本地全量 `eval_per_class.py` 结果。两者评估口径不同,后续以全量脚本结果为准;YOLO3 列是全量数。
+
+### 全量按类别结果(`eval_per_class.py`,2026-07-19)
+
+运行环境:VOC2007 test 4952 张,310 batches,`outputs/best.pt`,backbone=`resnet34`,device=`cuda`。
+
+Overall mAP@0.5 = **0.6890**
+
+| class | AP@0.5 | recall@0.5 |
+|---|---:|---:|
+| bottle | 0.424 | 0.577 |
+| pottedplant | 0.455 | 0.672 |
+| chair | 0.468 | 0.667 |
+| boat | 0.569 | 0.700 |
+| diningtable | 0.594 | 0.712 |
+| sofa | 0.621 | 0.833 |
+| tvmonitor | 0.680 | 0.781 |
+| sheep | 0.703 | 0.775 |
+| bird | 0.722 | 0.781 |
+| cow | 0.730 | 0.812 |
+| bus | 0.745 | 0.795 |
+| bicycle | 0.752 | 0.802 |
+| person | 0.753 | 0.836 |
+| motorbike | 0.761 | 0.840 |
+| car | 0.764 | 0.839 |
+| aeroplane | 0.771 | 0.810 |
+| horse | 0.791 | 0.848 |
+| dog | 0.804 | 0.870 |
+| train | 0.819 | 0.877 |
+| cat | 0.853 | 0.881 |
 
 训练曲线上的两个关键事实(`outputs/training_log.json`):
 
