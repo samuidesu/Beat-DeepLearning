@@ -5,9 +5,30 @@
 
 - 训练集:VOC2007 trainval + VOC2012 trainval(~16.5k 张)
 - 验证集:VOC2007 test(4952 张,标准协议)
-- 结果:**待训练**(YOLO3 版同条件下 mAP@0.5 = 0.603,作为对照基线)
+- 结果:**mAP@0.5 ≈ 0.72**(峰值 0.7197 @ epoch 74 = `best.pt`)——**显著超过 YOLO3 版的 0.603(+0.117,≈+19%)**,详见下方"结果"一节
 
 > 这是按 FCOS *思想* 实现的(anchor-free 逐位置回归、centerness、按尺度范围分层)。原论文用 P3–P7 五层 / 800px 输入;这里为了与 YOLO3 复现可比,保持 416 输入 + P3–P5 三层。
+
+---
+
+## 结果(2026-07-19 训练)
+
+实际日程:stage1(冻结 backbone)36 epoch + stage2(全解冻)56 epoch,共 92 epoch。
+
+| 指标 | FCOS(本项目) | YOLO3 对照 | 差 |
+|---|---|---|---|
+| mAP@0.5 | **0.7197**(ep74,`best.pt`) | 0.603 | **+0.117(≈+19%)** |
+| mAP@0.75 | 0.493 | 0.355 | +0.138 |
+| mAP@[.5:.95] | 0.466 | 0.346 | +0.120 |
+
+> 口径说明:FCOS 列是训练日志的 per-epoch mAP,即前 60 个 val batch 的 **proxy**(`MAP_EVAL_MAX_BATCHES=60`),与全量 `eval.py` 可差 ±0.01–0.02;YOLO3 列是全量数。全量复核待跑(权重在云端)。
+
+训练曲线上的两个关键事实(`outputs/training_log.json`):
+
+1. **stage1(冻结 backbone)单独就 ≈ YOLO3 的最终成绩**:只训 neck+head,ep30 即 ~0.61 mAP@0.5。
+2. **stage2 解冻 backbone 才是 0.61 → 0.72 的驱动力**——再次印证 YOLO3 实验的结论"冻结的 ImageNet backbone 才是瓶颈"。ep60 已到 0.70,峰值 ep74,此后轻微过拟合(val_total 1.13→1.17),mAP 平台在 ~0.713–0.716。
+
+mAP@0.75(0.49)与 mAP@0.5 同步大涨,说明赢的不只是"松 IoU 下多检出",**定位精度本身更好**——与 GIoU 直接优化重叠度、稠密正样本监督的设计一致(具体归因待消融)。
 
 ---
 
@@ -166,7 +187,8 @@ PASCAL_VOC/
 
 ## 待办 / 实验计划
 
-- [ ] 跑通两阶段训练,记录 mAP@0.5 / @0.75 曲线
-- [ ] 与 YOLO3 版(0.603)同条件对比:整体 mAP、per-class 差异(尤其 YOLO3 最弱的 cow/bottle/boat/pottedplant——anchor-free 的分配方式对小目标是否更友好)
+- [x] 跑通两阶段训练,记录 mAP@0.5 / @0.75 曲线 → **0.72 / 0.49**(见"结果")
+- [x] 与 YOLO3 版(0.603)同条件对比:整体 **+0.117**;per-class 差异对比进行中(尤其 YOLO3 最弱的 cow/bottle/boat/pottedplant——anchor-free 的分配方式对小目标是否更友好)
+- [ ] 全量 `eval.py` 复核 proxy 数字(需把云端 `outputs/best.pt` 取回本地)
 - [ ] 消融:关掉 CENTER_SAMPLING / centerness 加权,看各自贡献
 - [ ] 调 REGRESSION_RANGES(416 输入下 (0,64)/(64,128) 的切分是否最优)
