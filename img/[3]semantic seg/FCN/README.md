@@ -5,24 +5,79 @@
 
 - 训练集:VOC2012 Segmentation train(1464 张;可选 SBD 增广到 ~10.5k,见下)
 - 验证集:VOC2012 Segmentation val(1449 张,标准协议,原始分辨率评估)
-- 结果:**待训练**(计划记录 mIoU / pixel_acc 曲线,与检测项目的"stage2 解冻是关键"结论对照)
+- 结果:**mIoU 0.5813**(VOC2012 val 全量 1449 张,原尺寸;pixel_acc 0.9104;无 SBD 增广)。stage1 冻结 backbone 只有 0.196,stage2 解冻拉到 0.58——检测项目的"解冻是关键"结论在分割上再次成立,细节见下
 
 > 这是按 FCN *思想* 实现的(全卷积、逐像素分类、跳连融合多尺度、8× 上采样输出)。原论文用 VGG16 + 逐层加 21 通道分数图再相加(FCN-8s);这里用 ResNet + FPN 在**特征层面**自顶向下融合到 stride-8 再一次性预测——语义上等价于 FCN-8s 的跳连,表达力更强。
 
 ---
 
-## 结果(占位,训练后回填)
+## 结果
+
+VOC2012 val 全量 1449 张、原始分辨率评估(best checkpoint @ epoch 78,无 SBD 增广):
 
 | 指标 | FCN(本项目) | 备注 |
 |---|---|---|
-| mIoU | - | VOC2012 val 全量 1449 张 |
-| pixel_acc | - | 参考(被 background 主导,仅作 sanity check) |
-| 最差类别 | - | `eval.py` 自动按 IoU 从差到好排序 |
+| mIoU | **0.5813** | 训练日志里逐 epoch 的 mIoU 是 300 张抽样 proxy(峰值 0.5569),全量评估略高 |
+| pixel_acc | 0.9104 | 被 background(IoU 0.9223)主导,仅作 sanity check |
+| mean_acc | 0.6763 | |
 
-预期观察点(与检测项目对照):
+两个预期观察点都有了答案:
 
-1. stage1(冻结 backbone)能到多少,stage2 解冻再涨多少——检测两次实验都证明"冻结的 ImageNet backbone 是瓶颈",分割是否同样成立?
-2. 1464 张训练图是否明显不够(检测用了 ~16.5k 张);开 `USE_SBD` 增广后 mIoU 提升多少。
+**1. "stage2 解冻 backbone 是最大杠杆"在分割上同样成立——解冻让 mIoU 翻了近 3 倍。**
+
+| 阶段 | 训练部分 | mIoU(proxy) |
+|---|---|---|
+| Stage 1(20 ep) | 冻结 backbone,只训 neck+head | 0.196 |
+| Stage 2(60 ep) | 全部解冻端到端 finetune | **0.557**(全量 0.5813) |
+
+严格说两阶段 epoch 数不同(20 vs 60),但 stage1 后半段 mIoU 每个 epoch 只挪 0.01–0.02,而 stage2 从 0.18 一路爬到 0.56——差距不是再多训几个冻结 epoch 能补上的。解释与检测项目一致,但在分割上暴露得更彻底:逐像素分类要求特征**空间上**精确,ImageNet 分类预训练只回答"图里有什么"、不关心"在哪个像素",这个缺口冻结时靠 neck/head 补不回来。
+
+**2. 1464 张训练图确实不够,但短板不在预期的地方。** 每类 IoU 两端(完整表折叠在下面):
+
+| 最差 5 类 | IoU | 最好 5 个前景类 | IoU |
+|---|---|---|---|
+| cow | **0.0298** | bird | 0.8178 |
+| chair | 0.1070 | cat | 0.8136 |
+| bicycle | 0.3060 | person | 0.7992 |
+| horse | 0.3564 | bus | 0.7889 |
+| pottedplant | 0.4001 | car | 0.7772 |
+
+原本预判最差的是细结构类(bottle/bicycle/pottedplant,stride-8 分辨率极限),只对了一半:bicycle 0.31 / pottedplant 0.40 确实差,但 bottle 拿到 0.58 并不垫底。真正塌掉的是 cow 0.03 + horse 0.36,以及 chair 0.11 + sofa 0.42 + diningtable 0.46——**语义近邻(四足动物一组、家具一组)在互相吞并像素**,这是小数据下判别力不足,不是上采样分辨率不足。所以下一步优先 `USE_SBD = True` 补数据,而不是先换 DeepLab/U-Net 式解码。(cow 的像素具体流向哪些类,可用 `utils/metrics.py` 的混淆矩阵直接确认。)
+
+<details>
+<summary>完整 21 类 IoU(eval.py 原始输出)</summary>
+
+```
+class              IoU
+----------------------
+cow             0.0298
+chair           0.1070
+bicycle         0.3060
+horse           0.3564
+pottedplant     0.4001
+sofa            0.4173
+diningtable     0.4570
+boat            0.5204
+bottle          0.5765
+sheep           0.6162
+tvmonitor       0.6221
+train           0.7001
+motorbike       0.7095
+dog             0.7266
+aeroplane       0.7442
+car             0.7772
+bus             0.7889
+person          0.7992
+cat             0.8136
+bird            0.8178
+background      0.9223
+----------------------
+mIoU            0.5813
+pixel_acc       0.9104
+mean_acc        0.6763
+```
+
+</details>
 
 ---
 
@@ -154,8 +209,8 @@ FCN/
 
 ## 待办 / 实验计划
 
-- [ ] 跑通两阶段训练,记录 mIoU 曲线;确认"stage2 解冻 backbone"在分割上是否同样是最大杠杆
+- [x] 跑通两阶段训练,记录 mIoU 曲线;确认"stage2 解冻 backbone"在分割上是否同样是最大杠杆——**成立:0.196 → 0.5813,近 3 倍,见"结果"**
 - [ ] 开 `USE_SBD = True` 增广(1464 → ~10.5k 张),量化数据量对 mIoU 的贡献
 - [ ] 消融:FPN 融合(等价 FCN-8s)vs 只用 c5 直接 32× 上采样(等价 FCN-32s),验证跳连的价值
 - [ ] 消融:8× 上采样 bilinear vs nearest vs 转置卷积
-- [ ] 观察每类 IoU:小物体/细结构类(bottle、bicycle、pottedplant)预计最差——stride-8 的分辨率极限,为后续 DeepLab(空洞卷积)/U-Net(更高分辨率解码)埋点
+- [x] 观察每类 IoU:预判(bottle、bicycle、pottedplant 最差)只对一半——bicycle 0.31 / pottedplant 0.40 确实差,但 bottle 0.58 不垫底;最差是 cow 0.03 / chair 0.11,是语义近邻混淆(数据量问题)而非分辨率问题,见"结果"。stride-8 分辨率的真实代价、DeepLab(空洞卷积)/U-Net(更高分辨率解码)的对照,留到 SBD 补数据之后再做
