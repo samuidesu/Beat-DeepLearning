@@ -2,8 +2,8 @@
 
 Forward pass:
     image [B, 3, H, W]
-      --backbone-->  (c3, c4, c5)            strides 8 / 16 / 32
-      --neck (FPN)-> p3 [B, 256, H/8, W/8]   ONE fused stride-8 map
+      --backbone-->  (c2, c3, c4, c5)        strides 4 / 8 / 16 / 32
+      --neck (FPN)-> p2 [B, 256, H/4, W/4]   ONE fused stride-4 map
       --head-------> logits [B, 21, H, W]    per-pixel class logits
 
 The model returns RAW logits (no softmax) at full input resolution. Training
@@ -45,13 +45,13 @@ class FCN(nn.Module):
         super().__init__()
         self.num_classes = num_classes
 
-        # Backbone -> 3 feature maps (strides 8/16/32). resnet18/34 share the
-        # same tap channels (128/256/512), so neck/head are unaffected by arch.
+        # Backbone -> 4 feature maps (strides 4/8/16/32). resnet18/34 share the
+        # same tap channels (64/128/256/512), so neck/head are unaffected by arch.
         self.backbone = ResNetBackbone(arch=backbone, pretrained=pretrained)
-        # Neck fuses them top-down into ONE stride-8 map of fpn_channels width.
+        # Neck fuses them top-down into ONE stride-4 map of fpn_channels width.
         self.neck = FPNNeck(in_channels=self.backbone.out_channels,
                             out_channels=fpn_channels)
-        # Head: per-pixel classifier + 8x bilinear upsample to input size.
+        # Head: per-pixel classifier + 4x bilinear upsample to input size.
         self.head = FCNHead(in_ch=self.neck.out_channels,
                             num_classes=num_classes)
 
@@ -64,9 +64,9 @@ class FCN(nn.Module):
         Output:
             raw per-pixel class logits [B, num_classes, H, W].
         """
-        feats = self.backbone(x)    # (c3, c4, c5)
-        p3 = self.neck(feats)       # [B, 256, H/8, W/8]
-        logits = self.head(p3)      # [B, 21, H, W]
+        feats = self.backbone(x)    # (c2, c3, c4, c5)
+        p2 = self.neck(feats)       # [B, 256, H/4, W/4]
+        logits = self.head(p2)      # [B, 21, H, W]
         return logits
 
     # ---- Two-stage finetuning helpers ---------------------------------------
