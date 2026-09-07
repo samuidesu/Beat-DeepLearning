@@ -21,3 +21,5 @@ __pycache__/
 # (untracked too). Keep the logs and curves, not 6 identical copies of a
 # 360 KB json.
 **/outputs_*/vocab.json
+AGENTS.md
+CLAUDE.md
