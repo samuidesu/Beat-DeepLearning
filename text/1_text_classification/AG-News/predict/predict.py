@@ -43,7 +43,7 @@ from dataset.ag_news import read_split, _clean  # noqa: E402
 from dataset.vocab import tokenize  # noqa: E402
 from utils.viz import format_prediction  # noqa: E402
 from train import clean_exit, get_device  # noqa: E402  device picker + exit fix
-from eval import load_model, load_vocab  # noqa: E402  reuse the checkpoint loader
+from eval import load_model, load_vocab, model_description  # noqa: E402
 
 # Default output folder: AG-News/predict/results/ (sits next to this file).
 _RESULTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "results")
@@ -109,7 +109,7 @@ def predict(model, vocab, texts, device, batch_size=256):
     not been through it, so it is applied here for every path.
 
     Input:
-        model: an eval-mode RNNClassifier.
+        model: an eval-mode RNNClassifier or TransformerClassifier.
         vocab: the Vocab the checkpoint was trained with.
         texts: list of raw strings.
         device / batch_size: as usual.
@@ -117,10 +117,11 @@ def predict(model, vocab, texts, device, batch_size=256):
         probs [N, C] float tensor of per-class probabilities (on CPU).
     """
     model.eval()
+    max_len = getattr(model, "max_len", config.MAX_LEN)
     out = []
     for start in range(0, len(texts), batch_size):
         chunk = texts[start:start + batch_size]
-        encoded = [vocab.encode(tokenize(_clean(t)), config.MAX_LEN) or [config.UNK_IDX]
+        encoded = [vocab.encode(tokenize(_clean(t)), max_len) or [config.UNK_IDX]
                    for t in chunk]
         lengths = torch.tensor([len(e) for e in encoded], dtype=torch.long)
         ids = torch.full((len(encoded), int(lengths.max())), config.PAD_IDX,
@@ -151,7 +152,7 @@ def main():
     model, cfg = load_model(weights, vocab, args.cell, args.pooling, device, output_dir)
     print(f"Device: {device}")
     print(f"Loaded weights: {weights}")
-    print(f"Model: Bi{cfg['cell'].upper()} pooling={cfg['pooling']}  vocab={len(vocab)}\n")
+    print(f"Model: {model_description(cfg)}  vocab={len(vocab)}\n")
 
     pairs = collect_inputs(args)
     texts = [t for t, _ in pairs]
@@ -197,12 +198,12 @@ def main():
 
     out_path = os.path.join(out_dir, "predictions.txt")
     with open(out_path, "w", encoding="utf-8") as f:
-        f.write(f"# weights: {weights}\n# model: Bi{cfg['cell'].upper()} "
-                f"pooling={cfg['pooling']}\n")
+        f.write(f"# weights: {weights}\n# model: {model_description(cfg)}\n")
         f.write("\n".join(lines) + summary + "\n")
     print(f"\nWrote {out_path}")
+    return cfg["model_type"]
 
 
 if __name__ == "__main__":
-    main()
-    clean_exit()   # see train.clean_exit(): cuDNN RNN + CUDA cannot shut down cleanly
+    if main() == "rnn":
+        clean_exit()  # Keep the existing RNN exit behavior.

@@ -1,0 +1,219 @@
+{
+  "meta": {
+    "model": "Transformer (mean pooling)",
+    "device": "cuda",
+    "seed": 42,
+    "data": {
+      "data_root": "C:\\code\\beatDL\\text\\1_text_classification\\AG-News\\dataset\\data",
+      "train_docs": 114000,
+      "train_batches": 891,
+      "val_docs": 6000,
+      "val_ratio": 0.05,
+      "split_seed": 1234,
+      "batch_size": 128,
+      "eval_batch_size": 256,
+      "num_workers": 0,
+      "vocab_size": 45618,
+      "min_freq": 2,
+      "max_len": 128,
+      "label_counts": {
+        "World": 28500,
+        "Sports": 28500,
+        "Business": 28500,
+        "Sci/Tech": 28500
+      },
+      "val_unk_rate": 0.0091
+    },
+    "model_cfg": {
+      "model_type": "transformer",
+      "num_classes": 4,
+      "embed_dim": 100,
+      "num_layers": 4,
+      "pooling": "mean",
+      "dropout": 0.1,
+      "pad_idx": 0,
+      "dim": 256,
+      "group": 4,
+      "max_len": 128,
+      "glove": true,
+      "glove_path": "C:\\code\\beatDL\\text\\1_text_classification\\SST-2\\dataset\\data\\glove\\glove.6B.100d.txt",
+      "glove_coverage": 0.8995
+    },
+    "optim": {
+      "optimizer": "Adam",
+      "weight_decay": 0.0001,
+      "grad_clip": 5.0,
+      "label_smoothing": 0.05,
+      "epochs_stage1": 5,
+      "epochs_stage2": 3,
+      "stage1_lr_head": 0.001,
+      "stage1_lr_encoder": 0.001,
+      "stage2_lr_head": 0.0003,
+      "stage2_lr_encoder": 0.0003,
+      "stage2_lr_embedding": 5e-05
+    },
+    "started": "2026-09-06 20:03:06",
+    "finished": "2026-09-06 20:05:38",
+    "best_val": {
+      "accuracy": 0.9188,
+      "epoch": 8
+    },
+    "final_val": {
+      "accuracy": 0.9188,
+      "macro_f1": 0.9188,
+      "per_class": {
+        "World": {
+          "precision": 0.9357,
+          "recall": 0.9113,
+          "f1": 0.9233,
+          "support": 1500
+        },
+        "Sports": {
+          "precision": 0.9684,
+          "recall": 0.982,
+          "f1": 0.9752,
+          "support": 1500
+        },
+        "Business": {
+          "precision": 0.9141,
+          "recall": 0.8653,
+          "f1": 0.889,
+          "support": 1500
+        },
+        "Sci/Tech": {
+          "precision": 0.8605,
+          "recall": 0.9167,
+          "f1": 0.8877,
+          "support": 1500
+        }
+      },
+      "matrix": [
+        [
+          1367,
+          29,
+          40,
+          64
+        ],
+        [
+          12,
+          1473,
+          8,
+          7
+        ],
+        [
+          41,
+          9,
+          1298,
+          152
+        ],
+        [
+          41,
+          10,
+          74,
+          1375
+        ]
+      ]
+    }
+  },
+  "history": [
+    {
+      "epoch": 1,
+      "stage": 1,
+      "lr_head": 0.001,
+      "lr_encoder": 0.001,
+      "time_sec": 18.6,
+      "timestamp": "09-06 20:03:25",
+      "train_loss": 0.557747825902805,
+      "val_loss": 0.45613230697313945,
+      "accuracy": 0.8935,
+      "macro_f1": 0.8929710699450903
+    },
+    {
+      "epoch": 2,
+      "stage": 1,
+      "lr_head": 0.0009045084971874737,
+      "lr_encoder": 0.0009045084971874737,
+      "time_sec": 19.1,
+      "timestamp": "09-06 20:03:44",
+      "train_loss": 0.4308607794987528,
+      "val_loss": 0.41627253754933674,
+      "accuracy": 0.9076666666666666,
+      "macro_f1": 0.9074147588253705
+    },
+    {
+      "epoch": 3,
+      "stage": 1,
+      "lr_head": 0.0006545084971874737,
+      "lr_encoder": 0.0006545084971874737,
+      "time_sec": 18.4,
+      "timestamp": "09-06 20:04:03",
+      "train_loss": 0.4132596072899668,
+      "val_loss": 0.4101616940498352,
+      "accuracy": 0.9118333333333334,
+      "macro_f1": 0.9117533370429027
+    },
+    {
+      "epoch": 4,
+      "stage": 1,
+      "lr_head": 0.00034549150281252633,
+      "lr_encoder": 0.00034549150281252633,
+      "time_sec": 18.4,
+      "timestamp": "09-06 20:04:21",
+      "train_loss": 0.39849845132493134,
+      "val_loss": 0.40897157828013103,
+      "accuracy": 0.9118333333333334,
+      "macro_f1": 0.9118357043680059
+    },
+    {
+      "epoch": 5,
+      "stage": 1,
+      "lr_head": 9.549150281252633e-05,
+      "lr_encoder": 9.549150281252633e-05,
+      "time_sec": 18.6,
+      "timestamp": "09-06 20:04:40",
+      "train_loss": 0.3848937476643345,
+      "val_loss": 0.3988748467763265,
+      "accuracy": 0.914,
+      "macro_f1": 0.9139468287382808
+    },
+    {
+      "epoch": 6,
+      "stage": 2,
+      "lr_head": 0.0003,
+      "lr_encoder": 0.0003,
+      "lr_embedding": 5e-05,
+      "time_sec": 19.5,
+      "timestamp": "09-06 20:04:59",
+      "train_loss": 0.3880299981895246,
+      "val_loss": 0.4022656668027242,
+      "accuracy": 0.9118333333333334,
+      "macro_f1": 0.9117955873653085
+    },
+    {
+      "epoch": 7,
+      "stage": 2,
+      "lr_head": 0.000225,
+      "lr_encoder": 0.000225,
+      "lr_embedding": 3.7500000000000003e-05,
+      "time_sec": 19.4,
+      "timestamp": "09-06 20:05:19",
+      "train_loss": 0.37953673562668916,
+      "val_loss": 0.3957427499294281,
+      "accuracy": 0.9143333333333333,
+      "macro_f1": 0.9144038551113923
+    },
+    {
+      "epoch": 8,
+      "stage": 2,
+      "lr_head": 7.500000000000003e-05,
+      "lr_encoder": 7.500000000000003e-05,
+      "lr_embedding": 1.2500000000000007e-05,
+      "time_sec": 18.9,
+      "timestamp": "09-06 20:05:38",
+      "train_loss": 0.3690120980948733,
+      "val_loss": 0.3868000750541687,
+      "accuracy": 0.9188333333333333,
+      "macro_f1": 0.9188052635367472
+    }
+  ]
+}

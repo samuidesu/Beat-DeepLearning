@@ -1,4 +1,4 @@
-"""Central configuration for RNN topic classification on AG News.
+"""Central configuration for RNN and Transformer topic classification on AG News.
 
 SECOND TEXT PROJECT of this repo. Everything structural is inherited from the
 SST-2 sibling -- same embedding/encoder/head split, same two-stage layered-LR
@@ -81,10 +81,11 @@ for _cand in _sibling_data_dirs():
         break
 GLOVE_PATH = os.path.join(GLOVE_DIR, GLOVE_NAME)
 
-# Logs, curves, checkpoints, vocab -- ONE FOLDER PER CELL.
+# Logs, curves, checkpoints, vocab -- one folder per model.
 OUTPUT_DIR_RNN = os.path.join(PROJECT_ROOT, "outputs_rnn")
 OUTPUT_DIR_LSTM = os.path.join(PROJECT_ROOT, "outputs_lstm")
 OUTPUT_DIR_GRU = os.path.join(PROJECT_ROOT, "outputs_gru")
+OUTPUT_DIR_TRANSFORMER = os.path.join(PROJECT_ROOT, "outputs_transformer")
 
 
 def output_dir_for_cell(cell: str) -> str:
@@ -155,11 +156,19 @@ BIDIRECTIONAL = True
 # be more regularization than the task needs. The curves will say.
 DROPOUT = 0.5
 
+# Transformer defaults (train.py --model transformer).
+# The embedding width stays EMBED_DIM; a trainable projection maps it to dim.
+TRANSFORMER_DIM = 128
+TRANSFORMER_GROUP = 4
+TRANSFORMER_LAYERS = 2
+TRANSFORMER_DROPOUT = 0.1
+TRANSFORMER_POOLING = "mean"
+
 # How the variable-length token features become ONE document vector:
-#     "last" -- final hidden state (both directions concatenated)
+#     "last" -- RNN final state / Transformer last real-token feature
 #     "max"  -- element-wise max over time (masked)
 #     "mean" -- masked average over time
-# "last" stays the default so the cell comparison runs under the setting that
+# "last" stays the RNN default so the cell comparison runs under the setting that
 # stresses the recurrence hardest: with 43-token documents, everything the
 # classifier sees has to have survived the whole walk.
 POOLING = "last"

@@ -11,6 +11,7 @@ honest protocol is: select on --split val, report --split test, once.
 Usage:
     python eval.py --split test             # LSTM, outputs_lstm/best.pt
     python eval.py --cell gru --split test  # GRU,  outputs_gru/best.pt
+    python eval.py --weights outputs_transformer/best.pt --split test
     python eval.py --weights path/to.pt --vocab path/to/vocab.json
     python eval.py --split val              # what training selected on
     python eval.py --split train            # sanity check: fit on train data
@@ -32,6 +33,7 @@ from torch.utils.data import DataLoader
 
 import config
 from model.rnn_classifier import RNNClassifier
+from model_transformer.transformer_classifier import TransformerClassifier
 from dataset.ag_news import AGNewsDataset, build_vocab_from_train, collate_batch
 from dataset.vocab import Vocab
 from utils.metrics import compute_accuracy
@@ -40,7 +42,7 @@ from train import clean_exit, get_device  # reuse the device picker + exit fix
 
 
 def parse_args():
-    p = argparse.ArgumentParser(description="Evaluate an RNN classifier on AG News")
+    p = argparse.ArgumentParser(description="Evaluate a topic classifier on AG News")
     p.add_argument("--cell", choices=["rnn", "lstm", "gru"], default=None,
                    help="cell the checkpoint was trained with (MUST match; "
                         "default: read from training_log.json, else config.py)")
@@ -102,39 +104,62 @@ def load_model(weights: str, vocab: Vocab, cell: str = None, pooling: str = None
     """
     output_dir = output_dir or os.path.dirname(os.path.abspath(weights))
     meta = read_run_meta(output_dir)
+    # Older logs have no model_type and describe an RNN.
+    model_type = meta.get("model_type", "rnn")
+    if model_type not in ("rnn", "transformer"):
+        raise ValueError(f"unknown model_type: {model_type!r}")
+    is_transformer = model_type == "transformer"
+    if is_transformer and cell is not None:
+        raise ValueError("--cell only applies to RNN checkpoints")
 
     def pick(name, explicit, fallback):
         """Precedence: explicit flag > training_log.json > config.py."""
         return explicit if explicit is not None else meta.get(name, fallback)
 
     cfg = {
-        "cell": pick("cell", cell, config.CELL),
-        "pooling": pick("pooling", pooling, config.POOLING),
+        "pooling": pick("pooling", pooling, config.TRANSFORMER_POOLING
+                        if is_transformer else config.POOLING),
         "embed_dim": pick("embed_dim", None, config.EMBED_DIM),
-        "hidden_size": pick("hidden_size", None, config.HIDDEN_SIZE),
-        "num_layers": pick("num_layers", None, config.NUM_LAYERS),
-        "bidirectional": pick("bidirectional", None, config.BIDIRECTIONAL),
+        "num_classes": pick("num_classes", None, config.NUM_CLASSES),
+        "pad_idx": pick("pad_idx", None, config.PAD_IDX),
+        "num_layers": pick("num_layers", None, config.TRANSFORMER_LAYERS
+                           if is_transformer else config.NUM_LAYERS),
+        "dropout": pick("dropout", None, config.TRANSFORMER_DROPOUT
+                        if is_transformer else config.DROPOUT),
     }
+    if is_transformer:
+        cfg.update(
+            dim=pick("dim", None, config.TRANSFORMER_DIM),
+            group=pick("group", None, config.TRANSFORMER_GROUP),
+            max_len=pick("max_len", None, config.MAX_LEN),
+        )
+        model_class = TransformerClassifier
+    else:
+        cfg.update(
+            cell=pick("cell", cell, config.CELL),
+            hidden_size=pick("hidden_size", None, config.HIDDEN_SIZE),
+            bidirectional=pick("bidirectional", None, config.BIDIRECTIONAL),
+        )
+        model_class = RNNClassifier
 
     # pretrained_vectors=None: the checkpoint already holds trained word
     # vectors, so GloVe is not needed (or wanted) at evaluation time.
-    model = RNNClassifier(
-        vocab_size=len(vocab),
-        num_classes=config.NUM_CLASSES,
-        embed_dim=cfg["embed_dim"],
-        hidden_size=cfg["hidden_size"],
-        cell=cfg["cell"],
-        num_layers=cfg["num_layers"],
-        bidirectional=cfg["bidirectional"],
-        pooling=cfg["pooling"],
-        dropout=config.DROPOUT,          # inactive in eval() mode anyway
-        pad_idx=config.PAD_IDX,
-        pretrained_vectors=None,
-    )
+    model = model_class(vocab_size=len(vocab), pretrained_vectors=None, **cfg)
     state = torch.load(weights, map_location="cpu")
     model.load_state_dict(state)
     model.eval()
+    cfg["model_type"] = model_type
     return (model.to(device) if device is not None else model), cfg
+
+
+def model_description(cfg):
+    """A shared model label for evaluation, plots and prediction reports."""
+    if cfg.get("model_type") == "transformer":
+        name = f"Transformer dim={cfg['dim']} heads={cfg['group']}"
+    else:
+        prefix = "Bi" if cfg["bidirectional"] else ""
+        name = f"{prefix}{cfg['cell'].upper()} h={cfg['hidden_size']}"
+    return f"{name} layers={cfg['num_layers']} pooling={cfg['pooling']}"
 
 
 def load_vocab(path: str = None, output_dir: str = None) -> Vocab:
@@ -169,10 +194,9 @@ def main():
     model, cfg = load_model(args.weights, vocab, args.cell, args.pooling,
                             device, output_dir)
     print(f"Loaded weights: {args.weights}")
-    print(f"Model: Bi{cfg['cell'].upper()} h={cfg['hidden_size']} "
-          f"layers={cfg['num_layers']} pooling={cfg['pooling']}  vocab={len(vocab)}")
+    print(f"Model: {model_description(cfg)}  vocab={len(vocab)}")
 
-    dataset = AGNewsDataset(args.split, vocab)
+    dataset = AGNewsDataset(args.split, vocab, max_len=cfg.get("max_len", config.MAX_LEN))
     loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False,
                         num_workers=args.num_workers, collate_fn=collate_batch)
     print(f"{args.split} documents: {len(dataset)}  "
@@ -184,10 +208,11 @@ def main():
         path = os.path.join(output_dir, f"confusion_matrix_{args.split}.png")
         plot_confusion_matrix(
             result["matrix"], config.CLASS_NAMES, path,
-            title=f"Bi{cfg['cell'].upper()} {args.split} confusion matrix")
+            title=f"{model_description(cfg)} {args.split} confusion matrix")
         print(f"\nWrote {path}")
+    return cfg["model_type"]
 
 
 if __name__ == "__main__":
-    main()
-    clean_exit()   # see train.clean_exit(): cuDNN RNN + CUDA cannot shut down cleanly
+    if main() == "rnn":
+        clean_exit()  # Keep the existing RNN exit behavior.

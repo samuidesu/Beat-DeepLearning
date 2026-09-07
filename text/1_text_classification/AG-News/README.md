@@ -1,590 +1,597 @@
-# RNN Topic Classification on AG News
+# AG News：RNN 与手写 Transformer 文本分类实验
 
-本仓库 text 方向的第二个项目。任务从 **二分类情感** 换成 **四分类主题**，模型仍是
-vanilla RNN / GRU / LSTM 三者对比，整体结构完全沿用同级的 `../SST-2`：
+## 1. 所有模型与对照实验的性能汇总
 
+**8 组实验的 test 结果已全部补齐。** 下表直接比较三个 RNN，以及 Transformer 的
+last / mean pooling、仅加宽、仅加深、同时加宽加深实验。Acc 与 Macro F1 均以百分数表示，越高越好。
+
+| 模型 / 实验 | 宽度 × 层数 | Pooling | Val Acc | Val Macro F1 | Test Acc | Test Macro F1 | 总参数量 | 秒/epoch |
+|---|---|---|---:|---:|---:|---:|---:|---:|
+| R1 BiRNN | 256/方向 × 2 | last | 88.60% | 88.57% | 88.76% | 88.74% | 5.14M | 28.61 |
+| R2 BiGRU | 256/方向 × 2 | last | 92.32% | 92.33% | 91.92% | 91.92% | 6.30M | 32.00 |
+| R3 BiLSTM | 256/方向 × 2 | last | 92.05% | 92.04% | 91.86% | 91.84% | 6.87M | 29.58 |
+| T0 Transformer（last 基线） | 128 × 2 | last | 91.97% | 91.96% | 92.04% | 92.03% | 4.97M | 6.89 |
+| T1 Transformer（mean 基线） | 128 × 2 | mean | **92.37%** | **92.37%** | 92.18% | 92.18% | 4.97M | 6.69 |
+| T2 Transformer（仅加宽） | 256 × 2 | mean | 92.25% | 92.26% | **92.47%** | **92.47%** | 6.17M | 10.16 |
+| T3 Transformer（仅加深） | 128 × 4 | mean | 92.17% | 92.17% | 92.34% | 92.33% | 5.37M | 10.16 |
+| T4 Transformer（加宽+加深） | 256 × 4 | mean | 91.88% | 91.88% | 92.04% | 92.03% | 7.75M | 18.86 |
+
+**共同条件：** GloVe 100d、训练 batch=128、eval batch=256、5+3=8 个 epoch、
+seed=42、MAX_LEN=128；优化器与两阶段学习率一致。RNN 均为双向，256 是每个方向的
+hidden size（拼接后为 512）；所有 Transformer 均为 4 头。RNN dropout=0.5，
+Transformer dropout=0.1，因此跨架构比较不是严格等容量、等正则化对照。
+
+**直接看结论：** T1（128×2 mean）的验证成绩最高；T2（256×2 mean）的 test 成绩最高。
+Mean 相比同尺寸 last 的 test accuracy 提高约 **0.14 个百分点**（多正确 11 篇）；
+单独加宽、加深比 mean 基线分别多正确 22、12 篇，同时加宽加深则少正确 11 篇。
+这些都是单 seed 的观察，尚未验证稳定性。
+
+本项目是词级 GloVe + encoder + pooling + linear 分类器，不是 BERT 微调。
+除词向量外，encoder 与分类头均从随机参数开始训练。
+
+**结果口径与来源：**
+
+- 截至 **2026-09-06**，共 8 组训练、8 组 test 记录。原始 T0 缺失的 test 已通过
+  `python eval.py --weights outputs_transformer/best.pt --split test --save-cm`
+  实际补跑，使用其日志恢复的 **128 维、2 层、4 头、last pooling** 配置，没有重新训练。
+  [T0 评估文本](outputs_transformer/eval_test.txt) · [T0 test 矩阵](outputs_transformer/confusion_matrix_test.png)。
+- Val 来自各 `training_log.json` 的 `meta.final_val`，对应最佳 checkpoint；
+  Test 来自各自最佳 checkpoint 的 7,600 篇评估结果，每类 1,900 篇。
+  其余七组复用已有 test 矩阵，不重复运行。全部来源见第 9 节。
+- `best.pt` 仅在 val accuracy 严格提高时更新：R2 最佳为 epoch 7，T0 为 epoch 6，
+  其余为 epoch 8。T0 第 8 轮准确率追平第 6 轮，不替换已保存权重。
+- 总参数量含 embedding，根据模型结构计算；秒/epoch 是日志中的训练+验证耗时均值，
+  不含准备、保存等开销，且不是同负载硬件 benchmark。详细结构和计数见第 2、5 节。
+- 本节指标以百分数显示；后文分析表保留原日志的 0–1 记法，例如 **92.04% = 0.9204**。
+
+## 2. 每个实验的模型配置与 pooling
+
+所有实验共享 `Embedding(45618, 100)`，初始化使用 GloVe 6B.100d，
+最大输入长度为 128 个 token，输出都是 `logits [B, 4]`。
+
+| 编号 | Encoder 类型与宽度 | 层数 | 头数 / 每头维度 | FFN | Pooling | 分类头 Linear | Dropout |
+|---|---|---:|---|---|---|---|---:|
+| R1 | rnn，hidden=256/方向，双向 | 2 | — | — | `last` | 512→4 | 0.5 |
+| R2 | gru，hidden=256/方向，双向 | 2 | — | — | `last` | 512→4 | 0.5 |
+| R3 | lstm，hidden=256/方向，双向 | 2 | — | — | `last` | 512→4 | 0.5 |
+| T0 | Transformer，dim=128 | 2 | 4 / 32 | 128→512→128 | `last` | 128→4 | 0.1 |
+| T1 | Transformer，dim=128 | 2 | 4 / 32 | 128→512→128 | `mean` | 128→4 | 0.1 |
+| T2 | Transformer，dim=256 | 2 | 4 / 64 | 256→1024→256 | `mean` | 256→4 | 0.1 |
+| T3 | Transformer，dim=128 | 4 | 4 / 32 | 128→512→128 | `mean` | 128→4 | 0.1 |
+| T4 | Transformer，dim=256 | 4 | 4 / 64 | 256→1024→256 | `mean` | 256→4 | 0.1 |
+
+这里 RNN 的 `hidden_size=256` 是**每个方向**的宽度，双向拼接后为 512；
+Transformer 的 `dim=128/256` 是所有头拼接后的总宽度，不能直接与 RNN 的单方向 hidden size 等同。
+
+### RNN 路径
+
+```text
+ids [B, L]
+  -> GloVe embedding + dropout [B, L, 100]
+  -> 2-layer bidirectional RNN / GRU / LSTM
+     outputs [B, L, 512], final [B, 512]
+  -> last pooling -> dropout -> Linear(512, 4)
+  -> logits [B, 4]
 ```
-embedding (GloVe, backbone) -> RNN encoder (neck) -> pooling + linear (head)
-两阶段分层学习率微调 + 每轮 JSON 日志 + 曲线图 + 最佳 checkpoint
+
+使用 packing 跳过 PAD 的循环计算。`last` 取最顶层正向终态与反向终态的拼接；
+LSTM 使用 `h_n`，不是 `c_n`。它不等于 `outputs[:, -1]`，
+也不等于最后一个有效位置上的完整双向输出。
+
+RNN 的 dropout=0.5 用于 embedding 输出、两层 RNN 之间和分类头前。
+Vanilla RNN 使用 tanh。
+
+### Transformer 路径
+
+```text
+ids [B, L]
+  -> GloVe embedding [B, L, 100]
+  -> Linear(100, dim) + fixed sinusoidal positions + dropout
+  -> N hand-written Post-LN Transformer layers [B, L, dim]
+  -> last / masked mean pooling [B, dim]
+  -> dropout -> Linear(dim, 4)
+  -> logits [B, 4]
 ```
 
----
+实现来自 [transformer_naive.py](model_transformer/transformer_naive.py)，
+没有替换成 `nn.TransformerEncoder`。每层包含：
 
-## 实验结果
+- 多头自注意力：Q/K/V 投影、按 `sqrt(head_dim)` 缩放、softmax、attention dropout、
+  多头拼接与输出投影。
+- Attention 残差分支：`LayerNorm(X + Dropout(MHA(X)))`。
+- FFN：`Linear(dim, 4*dim) -> GELU -> Dropout -> Linear(4*dim, dim)`，
+  再经过残差 dropout、相加与 LayerNorm；LayerNorm 后不额外加 GELU。
 
-| 指标 | 结果 |
-|---|---:|
-| Test Accuracy | **0.9192** |
-| Test Macro F1 | **0.9192** |
-| 最佳 epoch | **7 / 8**（按 val 选） |
-| 模型参数量 | **6.30M**（其中 embedding 4.56M） |
-| 训练时间 | **4.3 分钟**（8 epochs，单卡） |
+线性层都带 bias，LayerNorm 有可训练仿射参数；正弦/余弦位置编码是固定 buffer。
+Dropout=0.1 用于投影加位置编码后、attention 权重、两条残差分支、FFN 内部和分类头前。
+Transformer 复用的 `TokenEmbedding` 自身 dropout=0，避免输入处重复应用。
 
-最佳配置：`BiGRU + GloVe 6B.100d + last pooling`，两阶段 5 + 3 epochs。
+Attention 不使用 causal mask，真实 token 可以关注整篇文档。
+`padding_mask=True` 表示 PAD，屏蔽的是 key 列；encoder 最后清零 PAD 位置输出。
 
-> **划分协议**：AG News 的 test 标签是公开的，所以本项目从 train 中分层切出 5%
-> 作为 val，**只用 val 选 checkpoint**，test 只在最后由 `eval.py` 读一次。
-> 上表是 test（7,600 篇）的结果。
+### 两种已测试的 pooling
 
----
-
-## 三种 cell 对比
-
-完全单变量：同一词表（45,618）、同一 GloVe 初始化、同一 last pooling、同一 loss、
-同一 5 + 3 epochs 调度、同一 seed（42），只换 `--cell`。
-
-| 模型 | Test Acc | Test Macro F1 | Val Acc | 最佳 epoch | 总参数 | encoder 参数 | s/epoch | 总时长 |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|
-| BiRNN（vanilla） | 0.8876 | 0.8874 | 0.8860 | 8 | 5.14M | 0.58M | 28.6 | 3.8 min |
-| **BiGRU** | **0.9192** | **0.9192** | 0.9232 | 7 | 6.30M | 1.73M | 32.0 | 4.3 min |
-| BiLSTM | 0.9186 | 0.9184 | 0.9205 | 8 | 6.87M | 2.31M | 29.6 | 3.9 min |
-
-排序是 **{GRU ≈ LSTM} >> RNN**，注意**不是**教科书里的 LSTM > GRU > RNN。下面四个
-观察才是这次实验真正的内容。
-
-### 1. 门控确实在长序列上拉开了差距 —— 而且比 SST-2 大一个数量级
-
-这是本项目立项时的核心问题，答案很干脆：
-
-| | 序列中位长度 | LSTM/GRU 相对 RNN 的最大领先 |
+| 方法 | RNN | Transformer |
 |---|---|---|
-| SST-2 | train 7 词 / dev 20 词 | **+1.95** 个百分点（LSTM 0.8647 vs RNN 0.8452） |
-| **AG News** | **44 词** | **+3.16** 个百分点（GRU 0.9192 vs RNN 0.8876） |
+| `last` | 最顶层双向最终隐藏状态拼接 | 每篇文档最后一个真实 token 的输出，按 `lengths - 1` 索引 |
+| `mean` | 代码支持，本轮未做 RNN 对照 | 所有真实 token 特征的逐维平均，排除 PAD，除以真实长度 |
 
-换算成错误数更直观：**RNN 错 854 篇，GRU 错 614 篇，少了 28.1%**。
+T0 与 T1 唯一改变的模型配置是 `last -> mean`，pooling 本身不增加参数。
+Transformer 没有 CLS token。代码也支持 masked `max`，但本次没有对应实验记录。
 
-在文档变长、且用 `last` pooling（每个预测都依赖一个走完全程的隐状态）的设定下，
-vanilla RNN 的记忆半径成了真正的瓶颈。这与理论预期一致。
+## 3. 数据与共同训练协议
 
-**这里要坦白一件事**：动手前我的预测是「三者会挤在 1 个点以内」，理由是 AG News
-主题分类接近纯词汇任务（词袋基线就有 ~88.8%）。**这个预测错了**，门控的收益比我
-估计的大得多。
+### 数据划分及预处理
 
-### 2. GRU 和 LSTM 的差距是噪声，不要解读
+原始 CSV 为无表头的 `label, title, description`；
+输入拼接为 `title + ". " + description`，标签从 1–4 转为 0–3，
+顺序为 **World / Sports / Business / Sci/Tech**。
 
-GRU 0.9192 vs LSTM 0.9186，差 **0.06 个百分点 = 7600 篇里 5 篇**。
+| 划分 | 文档数 | 每类文档数 | 用途 |
+|---|---:|---:|---|
+| Train | 114,000 | 28,500 | 梯度更新、建立词表 |
+| Val | 6,000 | 1,500 | 每轮验证、选择 checkpoint 与比较配置 |
+| Test | 7,600 | 1,900 | 使用已选 checkpoint 做最终评估 |
 
-**单 seed 单次运行，这个差距没有任何意义。** 不能说"GRU 比 LSTM 好"。能说的只有
-「在这个配置下两者打平，而 LSTM 多用了 0.57M 参数」。
+Val 是从原始 120,000 条 train 中分层切出的 5%，切分 seed 固定为 1234，
+与训练 seed 42 分开。`train.py` 不使用 test 选择 checkpoint。
 
-对照 SST-2 上 LSTM 领先 GRU 1.49 个点 —— 那同样是单 seed，同样不可靠。两个数据集
-放在一起看，**唯一稳健的结论是「门控 > 无门控」，门控内部的排序需要多 seed 才能谈**。
+[dataset/ag_news.py](dataset/ag_news.py) 处理字面反斜杠换行、残缺 HTML 实体（如 `#39;`）
+及 HTML 标签；分词器负责小写化，没有停用词过滤或词干还原。
+词表只从 Train 建立，`min_freq=2`，共 **45,618** 个词项；
+八份 `vocab.json` 的 SHA-256 一致，词与 ID 的映射相同。
 
-### 3. 收敛速度的差距比终点差距更夸张
+长文档保留前 128 个 token，短文档在 collate 时补到**当前 batch 的最长长度**，
+所以实际 `L <= 128`，不同 batch 的 L 可以不同。空序列以一个 UNK 兜底，
+`PAD_IDX=0`、`UNK_IDX=1`。
 
-| 模型 | epoch 1 | 8 轮后 |
-|---|---:|---:|
-| BiRNN | 0.8153 | 0.8860 |
-| BiGRU | **0.8955** | 0.9232 |
-| BiLSTM | **0.8968** | 0.9205 |
+八份日志均记录 GloVe 词表覆盖率 **89.95%（type）**，Val UNK 比例 **0.91%（token）**。
+这两个比例统计对象不同，不能互相取补数。在词表内但未命中 GloVe 的普通词保留自己的 ID，
+初始化为均值 0、标准差 0.1 的随机向量，Stage 2 解冻后可以学习；词表外的词映射到 UNK。
 
-**GRU / LSTM 第一轮就超过了 RNN 训练八轮的最终成绩。** RNN 花了整整 8 轮爬到 0.8860，
-门控 cell 一轮就到 0.895+。
+> 既有数据自检记录：清洗后 Train 文档长度均值约 45.6、中位数 44、P99 为 97，
+> 128-token 截断影响 411 / 114,000（约 0.36%）篇。此前还发现一篇相同文档同时落入
+> Train 与 Val，来自原始语料的重复，现有实验未去重。本次没有重跑这些语料统计，
+> 保留此说明作为数据限制，而不是声称划分在文档内容上绝对无重叠。
 
-这和 SST-2 上的观察同向（那边也是"差距主要体现在收敛速度"），但幅度大得多。
+### 所有实验共同使用的超参数
 
-### 4. 三者都在 stage 2 第一轮掉一下，然后反超
+| 项目 | 设置 |
+|---|---|
+| 训练 / 验证与测试 batch size | 128 / 256 |
+| 每轮训练 batch 数 | 891，`drop_last=False` |
+| 训练 seed / 划分 seed | 42 / 1234 |
+| DataLoader workers | 0 |
+| 设备 | 日志均为 `cuda` |
+| Optimizer | Adam，weight decay = 1e-4 |
+| Loss | CrossEntropyLoss，label smoothing = 0.05 |
+| 梯度裁剪 | 全局梯度范数上限 5 |
+| 训练预算 | Stage 1：5 轮；Stage 2：3 轮；共 8 轮 |
+| 调度 | 每阶段独立创建 CosineAnnealingLR，无 warmup |
+| Checkpoint 选择 | 全部 8 轮中 val accuracy 最高者；相同准确率保留较早者 |
 
-| 模型 | stage 1 末（ep5） | stage 2 首轮（ep6） | 最终最佳 | stage 2 净收益 |
+**RNN 与 Transformer 的 batch size、学习率、训练轮数相同；dropout 不同。**
+
+| 阶段 | Embedding | Encoder 初始 LR | Head 初始 LR | Embedding 初始 LR |
+|---|---|---:|---:|---:|
+| Stage 1，epoch 1–5 | 冻结 | 1e-3 | 1e-3 | 不加入 optimizer |
+| Stage 2，epoch 6–8 | 解冻 | 3e-4 | 3e-4 | 5e-5 |
+
+表中 LR 是各阶段起点，随后按 cosine 下降；Stage 2 重建 optimizer 和 scheduler。
+这里的 `train_loss` / `val_loss` 都是按样本数加权平均的交叉熵，不是整轮损失总和。
+
+## 4. 对照实验分析
+
+### 4.1 Pooling：last 与 mean
+
+保持 `dim=128、layers=2、heads=4、dropout=0.1` 和全部训练设置不变：
+
+| Pooling | Best Val Acc | Best Val Macro F1 | 最佳 epoch | Test Acc |
 |---|---:|---:|---:|---:|
-| BiRNN | 0.8807 | 0.8778 ↓ | 0.8860 | +0.53 |
-| BiGRU | 0.9185 | 0.9177 ↓ | 0.9232 | +0.47 |
-| BiLSTM | 0.9177 | 0.9160 ↓ | 0.9205 | +0.28 |
+| T0 last | 0.9197 | 0.9196 | 6 | 0.9204 |
+| T1 mean | 0.9237 | 0.9237 | 8 | 0.9218 |
 
-**三个模型无一例外**：解冻 embedding 的第一轮准确率先掉，随后两轮才涨回来并超过。
-这就是分层学习率要解决的问题 —— 4.56M 个预训练词向量突然开始接受梯度，哪怕
-lr 只有 5e-5，几何结构还是会被扰动一下。
+Mean 的最佳 val accuracy 提高 **0.40 个百分点（24 / 6,000 篇）**，因此当前
+`config.TRANSFORMER_POOLING = "mean"`。这支持在本项目中以 mean 作为默认配置，
+补齐 T0 的 test 后，mean 的 test accuracy 从 0.9204 提高到 0.9218，
+增加约 **0.14 个百分点（11 / 7,600 篇）**。只有单 seed，尚不能证明稳定优势。
+旧目录 `outputs_transformer/` 的结果仍属于 **last**，没有改用 mean 重新评估。
 
-对比 SST-2：那次**只有 RNN 受到 stage 2 冲击**，GRU/LSTM 没有。这次三个都掉，
-大概是因为这里 embedding 占参数的 66%（SST-2 只有 37%），扰动的相对影响更大。
+### 4.2 宽度 × 深度：四组 mean pooling 对照
 
-净收益 +0.3 ~ +0.5 个点，stage 2 是划算的，但不惊人。
+头数固定为 4，FFN 宽度固定为 `4*dim`；其余训练配置一致。
+因此加宽会同时改变每头维度（32→64）和 FFN 中间宽度（512→1024）。
+下表差值均相对于 T1；“非 embedding 参数”就是 encoder + head。
 
-### 5. 每轮耗时几乎相同（同 SST-2）
+| 配置（dim×层数） | Val Acc | Δ Val（百分点） | Test Acc | Δ Test（百分点） | Test 多正确篇数 | 非 embedding 参数倍率 | 耗时倍率 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| T1 128×2 | 0.9237 | +0.00 | 0.9218 | +0.00 | +0 | 1.00× | 1.00× |
+| T2 256×2 | 0.9225 | -0.12 | 0.9247 | +0.29 | +22 | 3.92× | 1.52× |
+| T3 128×4 | 0.9217 | -0.20 | 0.9234 | +0.16 | +12 | 1.97× | 1.52× |
+| T4 256×4 | 0.9188 | -0.48 | 0.9204 | -0.14 | -11 | 7.77× | 2.82× |
 
-28.6 / 32.0 / 29.6 秒，而 encoder 参数是 1 : 3 : 4。**注意 RNN 并不是最快的**，
-GRU 反而最慢 —— 说明这个规模下差异已被运行间波动淹没（单个 LSTM 内部的每轮耗时
-就在 25.4 ~ 37.8 秒之间跳）。
+可以得出的结论：
 
-通行的解释是瓶颈在序列的时间步数（无法并行）而非每步的浮点运算量，cuDNN 把三者
-的差异抹平了。**但这是推断，不是本项目实测** —— 这里的耗时包含数据加载、评测、
-Python 开销，我没有单独给 encoder 计时。能确证的只有「cell 的算力差异不是瓶颈」。
+1. **在固定 8 轮预算下，加大模型没有提高最佳验证成绩。** T1 的验证集正确数为
+   5,542；T2/T3/T4 分别为 5,535 / 5,530 / 5,513。
+2. **Test 上单独加宽或加深有小幅提升，但并非单调收益。** T2/T3 分别比 T1 多正确
+   22 / 12 篇；T4 则少正确 11 篇，同时非 embedding 参数约为 7.77 倍、耗时约为 2.82 倍。
+3. **Val 与 test 排序不一致。** 以 val 选择配置仍是 T1；T2 是本次已观察到的最高
+   test 分数，不据此反向改选“最佳验证模型”或默认配置。继续据 test 调参会削弱其独立评估意义。
+4. 这些结果只回答“在同一套超参数和预算下放大是否有收益”，不回答更大模型充分调优后的上限。
+   尤其 T4 的训练 loss 也未低于 T1，不能仅凭 test 较低就断言是过拟合；
+   更长预算、学习率、warmup 或正则化是否有帮助仍需独立对照。
 
----
+### 4.3 RNN cell 与跨架构比较
 
-## 为什么在 SST-2 之后再做 AG News
+R1/R2/R3 保持相同的 hidden size、层数、双向设置、pooling 和 dropout，只换 cell，
+但门数不同，因此参数量不是相等的。
 
-不是为了换一个数据集刷分，而是这四个差异各自会改变一件事：
+- GRU 比 vanilla RNN 的 test accuracy 高 **3.16 个百分点**，错误从 854 降到 614，
+  少错 240 篇（错误数减少 28.1%）。
+- GRU 与 LSTM 分别为 0.9192 / 0.9186，仅差 **5 / 7,600 篇**。
+  单次运行不足以建立稳定的 GRU > LSTM 排序。
+- T1/T2 的 test accuracy 分别比 GRU 高 **0.26 / 0.55 个百分点**。
+  但 Transformer 同时改变了输出宽度、pooling、dropout 和参数预算，
+  不能把全部差距单独归因于 attention。
+- 本次门控 RNN 的第一轮 val accuracy 已超过 vanilla RNN 的第 8 轮，
+  显示当前配置下的收敛差异；这不是对所有训练预算的普遍结论。
 
-| | SST-2 | AG News |
-|---|---|---|
-| 任务 | 2 类情感 | 4 类主题（World / Sports / Business / Sci/Tech） |
-| 规模 | 67k 片段，train 中位 7 词 / dev 中位 20 词 | 120k 新闻，中位 44 词 |
-| 类别平衡 | 44 / 56 | 精确 25 / 25 / 25 / 25 |
-| test 标签 | 不公开 | **公开** |
+### 4.4 收敛与冻结 / 解冻阶段
 
-1. **序列变长** → 门控 cell 该拉开差距。**结论：确实拉开了，+3.16 个点。**（观察 1）
-2. **类别数 2 → 4** → 混淆矩阵从「错多少」变成「哪两类在混」。**结论：Business ↔
-   Sci/Tech 占了将近一半的错误。**（见下方完整结果）
-3. **完全平衡** → 准确率不可能被多数类捷径抬高，随机基线干净地等于 0.25。
-4. **test 标签公开** → 必须自建验证集，见下一节。
+下表的 epoch 8 指标是**最后一轮**，与主结果表的最佳 checkpoint 分开记录。
 
----
+| 编号 | Epoch 1 Val Acc | Epoch 5 Val Acc | Epoch 8 Val Acc | Epoch 8 Train loss | Epoch 8 Val loss |
+|---|---:|---:|---:|---:|---:|
+| R1 | 0.8153 | 0.8807 | 0.8860 | 0.5176 | 0.4700 |
+| R2 | 0.8955 | 0.9185 | 0.9225 | 0.3995 | 0.3824 |
+| R3 | 0.8968 | 0.9177 | 0.9205 | 0.3974 | 0.3848 |
+| T0 | 0.8985 | 0.9178 | 0.9197 | 0.3688 | 0.3862 |
+| T1 | 0.9033 | 0.9190 | 0.9237 | 0.3628 | 0.3803 |
+| T2 | 0.8998 | 0.9210 | 0.9225 | 0.3550 | 0.3747 |
+| T3 | 0.9022 | 0.9190 | 0.9217 | 0.3627 | 0.3784 |
+| T4 | 0.8935 | 0.9140 | 0.9188 | 0.3690 | 0.3868 |
 
-## 划分协议：为什么多了一个 val
+八组实验的最佳 checkpoint 都出现在 Stage 2。但 Stage 2 同时增加训练轮数、
+解冻 embedding，并重建 optimizer / scheduler，不能把全部提升归因于“解冻有效”；
+还缺少继续冻结并训练同样轮数的对照。
 
-SST-2 的 test 标签由 GLUE 服务器保管，所以「用 dev 选 checkpoint」和「报告 dev」
-是同一件事，不存在泄漏空间。AG News 把带标签的 test 直接给了你——如果每轮都在
-test 上评估、再挑最好的一轮，那个「test 准确率」就变成了 N 次抽样里的最大值，
-不再是泛化估计。
+训练 loss 在 dropout 开启且参数持续更新时累计；验证 loss 在轮末 eval 模式下计算。
+二者条件不同，不能只看 train loss 大于或小于 val loss 就判断欠拟合 / 过拟合。
 
-所以本项目从 train.csv 中分层切出 5%：
+## 5. 参数量与耗时
 
-| 划分 | 数量 | 用途 |
-|---|---|---|
-| train | 114,000 | 梯度更新 + 建词表 |
-| val | 6,000 | 每轮曲线、选 `best.pt` |
-| test | 7,600 | **只在最后由 `eval.py` 读一次** |
+按各日志的实际维度和当前模型结构逐项计算，包含 bias 与 LayerNorm 参数；
+不是重新实例化模型或运行 benchmark 得到的测量。
+所有实验的 embedding 参数均为 **4,561,800**，固定位置编码不计入参数量。
 
-切分由 `config.SPLIT_SEED = 1234` 控制，**与训练种子 `config.SEED` 分开**：换训练
-种子看波动时，被评测的那 6000 条文档不能跟着动。分层切分保证 val 也是精确的
-25/25/25/25。
+| 编号 | Encoder 参数 | Head 参数 | Stage 1 可训练参数 | 总参数 / Stage 2 参数 | 平均秒/epoch | 8 轮秒数之和 |
+|---|---:|---:|---:|---:|---:|---:|
+| R1 | 577,536 | 2,052 | 579,588 | 5,141,388 | 28.61 | 228.9 |
+| R2 | 1,732,608 | 2,052 | 1,734,660 | 6,296,460 | 32.00 | 256.0 |
+| R3 | 2,310,144 | 2,052 | 2,312,196 | 6,873,996 | 29.58 | 236.6 |
+| T0 | 409,472 | 516 | 409,988 | 4,971,788 | 6.89 | 55.1 |
+| T1 | 409,472 | 516 | 409,988 | 4,971,788 | 6.69 | 53.5 |
+| T2 | 1,605,376 | 1,028 | 1,606,404 | 6,168,204 | 10.16 | 81.3 |
+| T3 | 806,016 | 516 | 806,532 | 5,368,332 | 10.16 | 81.3 |
+| T4 | 3,184,896 | 1,028 | 3,185,924 | 7,747,724 | 18.86 | 150.9 |
 
-**这个协议起作用了。** val 与 test 的差距很小，说明 val 没有被选 checkpoint 的动作
-榨干：
+Stage 1 只冻结 embedding，所以可训练参数 = encoder + head；Stage 2 解冻全部。
+Embedding 的 PAD 行虽然计入张量参数量，但不会通过 embedding 查表收到普通 token 的梯度。
 
-| 模型 | Val | Test | 差 |
-|---|---:|---:|---:|
-| BiRNN | 0.8860 | 0.8876 | **+0.16** |
-| BiGRU | 0.9232 | 0.9192 | −0.40 |
-| BiLSTM | 0.9205 | 0.9186 | −0.19 |
+Transformer 的 encoder 包含输入投影和 N 个 layer：
 
-RNN 的 test 甚至比 val 还高。如果当初直接在 test 上选 checkpoint，报出来的数字会
-系统性偏高，而且没人看得出来偏了多少。
-
----
-
-## 数据集
-
-AG News（Zhang, Zhao & LeCun 2015），新闻标题 + 首段，四个主题各 30,000 条训练样本。
-
-原始格式是无表头的三列 csv：
-
-```
-"3","Wall St. Bears Claw Back Into the Black (Reuters)","Reuters - Short-sellers, Wall Street's dwindling\band of ultra-cynics, are seeing green again."
- ^   ^                                                  ^
- |   title                                              description
- 类别，1-based：1=World 2=Sports 3=Business 4=Sci/Tech
-```
-
-本项目取 `title + ". " + description` 作为输入文本，类别减 1 变成 0-based。
-
-### 两处必须修的抓取损伤
-
-这份语料是从网页抓的，转义序列烂在了里面。**实测（120,000 条训练样本）：**
-
-| 问题 | 出现比例 | 不处理的后果 |
-|---|---|---|
-| 换行被写成字面反斜杠 `dwindling\band` | 11.0% | 分词得到 `dwindlingband`，一个 GloVe 里没有的词 |
-| HTML 实体丢了 `&`，只剩 `#39;` | **24.75%** | `Arsenal #39;s` → `['arsenal','#','39',';','s']` |
-| `&lt;strong&gt;` 之类的标签 | 4.4% | 解转义后变成 `<strong>` 继续污染 |
-
-`#39;` 这条最要命：**四分之一的文档**里，本该是一个撇号的位置塞进了三个垃圾
-token。全语料统计是 47k 个 `#`、45k 个 `39`、87k 个 `;`、10k 个 `quot`，约占
-全部 token 的 4%——RNN 得一步一步走过去。
-
-注意 `html.unescape()` 单独用是修不好的：`&lt;` / `&gt;` 保留了 `&`，而 `&#39;` /
-`&quot;` 丢了，所以 `dataset/ag_news.py:_ENTITY_RE` 用 `&?` 同时兼容两种写法。
-
-**清洗的实测代价 ≈ 0**：GloVe token 级覆盖率 98.97% → 98.83%。这个数字几乎不动，
-恰恰说明**覆盖率是个很差的质量指标**——`#`、`39`、`;` 本身都在 GloVe 里，所以
-它们一直被算作「找到了」。
-
-清洗后的效果：
-
-```
-Arsenal #39;s 100 per cent record   →   Arsenal 's 100 per cent record
+```text
+输入投影参数 = 100 * dim + dim
+每层参数     = 12 * dim^2 + 13 * dim
+分类头参数   = 4 * dim + 4
+总参数       = 4,561,800 + 输入投影参数 + N * 每层参数 + 分类头参数
 ```
 
-顺带一提，替换后 `'s` 自然独立成词（原文 `#39;` 前有空格），正好符合 GloVe 6B
-所用的 PTB 风格分词习惯，也和 SST-2 语料里已经预分好的 `it 's` 一致。
+只看含 embedding 的总参数会掩盖规模差异：T1→T4 的总参数约从 4.97M 到 7.75M，
+但真正随机初始化的 encoder + head 从约 0.41M 到 3.19M。
 
-**刻意没做**：小写化（归分词器管）、停用词过滤、词干还原（后两者扔掉的正是循环
-模型该用的信号）。
+耗时来自 `history[].time_sec`，包含每轮训练与验证，不包含数据/GloVe 准备、
+checkpoint 保存和训练后的绘图/最终报告，不等于整个进程墙钟时间。
+RNN 记录来自 09-03，Transformer 来自 09-06；日志未保存 GPU 型号和运行负载。
 
-### 处理后的实测统计
+本次记录里 T1 平均 **6.69 s/epoch**，三个 RNN 平均 **28.61–32.00 s/epoch**，
+约为 T1 的 **4.28–4.79 倍**。这只是这些完整配置的耗时对比，不是等容量、同负载硬件基准；
+不能仅凭这些数字断言某个 kernel 是瓶颈，或“cuDNN 把不同 cell 的计算差异抹平了”。
 
-```
-词表大小          45,618        (min_freq=2)
-train  114,000    <unk> 0.47%   长度 mean 45.6  median 44  p99 97  max 253
-val      6,000    <unk> 0.91%   长度 mean 45.9  median 44  p99 99
-test     7,600    <unk> 0.90%   长度 mean 45.2  median 44  p99 95
-GloVe 覆盖        41,035/45,618 = 90.0% (type)   98.83% (token)
-MAX_LEN=128 截断  411 / 114,000 = 0.36%
-```
+## 6. Test 分类表现与错误分析
 
-`min_freq=2`（SST-2 用的是 1）：这份语料 token 数是 SST-2 的约 18 倍，原始 type
-数被只出现一次的词主导——拼写错误、一次性人名、股票代码，靠一次出现本来也学不出
-东西。丢掉它们让 embedding 表几乎减半，而且让真实训练样本走 `<unk>` 通道，那个
-向量因此得到训练，而不是停在随机初始化上。
+每类 support 均为 1,900。以下由已保存 test 混淆矩阵重新计算；
+F1 为 `2 * precision * recall / (precision + recall)`，
+Macro F1 是四类 F1 的平均值，不是先平均 precision/recall 再求 F1。
 
-### 一条已知的数据瑕疵
+| 编号 | World F1 | Sports F1 | Business F1 | Sci/Tech F1 | 总错误篇数 | Business ↔ Sci/Tech 错误（占总错误） |
+|---|---:|---:|---:|---:|---:|---:|
+| R1 | 0.8915 | 0.9577 | 0.8405 | 0.8597 | 854 | 382（44.7%） |
+| R2 | 0.9275 | 0.9756 | 0.8804 | 0.8933 | 614 | 292（47.6%） |
+| R3 | 0.9261 | 0.9704 | 0.8824 | 0.8947 | 619 | 284（45.9%） |
+| T0 | 0.9254 | 0.9765 | 0.8823 | 0.8972 | 605 | 288（47.6%） |
+| T1 | 0.9289 | 0.9796 | 0.8833 | 0.8953 | 594 | 293（49.3%） |
+| T2 | 0.9331 | 0.9801 | 0.8872 | 0.8985 | 572 | 282（49.3%） |
+| T3 | 0.9307 | 0.9794 | 0.8860 | 0.8972 | 582 | 286（49.1%） |
+| T4 | 0.9270 | 0.9793 | 0.8813 | 0.8935 | 605 | 298（49.3%） |
 
-train.csv 内部有 **2 条完全重复的文档**（120,000 条中）。其中一条的两份分别落进
-了 train 和 val，所以 `dataset/ag_news.py` 的自检会报 `val documents also present
-in train: 1`。这是语料本身的重复，不是切分 bug，6000 条里占 0.017%，不作处理。
+Business 与 Sci/Tech 的双向误判占 **44.7%–49.3%** 的总错误，是这些模型共同的主要错误来源。
+以 T2 为例，Business→Sci/Tech 为 198 篇，反向为 84 篇，共 282 篇；
+Sports F1 则达到 0.9801。主题重叠可能是原因之一，但需要检查具体文档，
+不能仅凭混淆矩阵认定都是标签歧义。
 
----
+T2 比 T1 总共少错 22 篇，其中 Business↔Sci/Tech 少错 11 篇，
+并不是只改善这一对类别。
 
-## 模型结构
+### 默认模型 T1 与最高 test 分数模型 T2 的逐类指标
 
-```
-ids [B, L]  (L = 该 batch 内最长文档，动态 padding)
-  │
-  ├─ TokenEmbedding        45,618 x 100，GloVe 初始化，padding_idx=0
-  │    └─ Dropout(0.5)
-  │  vectors [B, L, 100]
-  │
-  ├─ RNNEncoder            2 层双向，hidden=256/方向
-  │    pack_padded_sequence → RNN/GRU/LSTM → pad_packed_sequence
-  │  outputs [B, L, 512]   final [B, 512]
-  │
-  └─ ClassifierHead        pooling(last/max/mean) → Dropout(0.5) → Linear
-     logits [B, 4]
-```
+| 编号 | 类别 | Precision | Recall | F1 | Support |
+|---|---|---:|---:|---:|---:|
+| T1 | World | 0.9440 | 0.9142 | 0.9289 | 1900 |
+| T1 | Sports | 0.9730 | 0.9863 | 0.9796 | 1900 |
+| T1 | Business | 0.9055 | 0.8621 | 0.8833 | 1900 |
+| T1 | Sci/Tech | 0.8677 | 0.9247 | 0.8953 | 1900 |
+| T2 | World | 0.9533 | 0.9137 | 0.9331 | 1900 |
+| T2 | Sports | 0.9740 | 0.9863 | 0.9801 | 1900 |
+| T2 | Business | 0.9080 | 0.8674 | 0.8872 | 1900 |
+| T2 | Sci/Tech | 0.8676 | 0.9316 | 0.8985 | 1900 |
 
-**结构与 SST-2 完全一致**（`embed_dim=100`、`hidden=256`、`2 层`、`双向`、
-`dropout=0.5`、`last pooling`），`model/` 下四个文件是同一套代码。变的只有两端：
-类别数 2→4、词表 13,846→45,618、MAX_LEN 64→128。
+| T1：128×2 mean | T2：256×2 mean |
+|---|---|
+| ![T1 test confusion matrix](outputs_transformer_mean/confusion_matrix_test.png) | ![T2 test confusion matrix](outputs_transformer_d256_l2_mean/confusion_matrix_test.png) |
 
-### 参数量（实测）
+其他模型的 test 图和原始计数见第 9 节。所有图片中行是真实类别、列是预测类别。
 
-| cell | 总参数 | encoder | embedding | stage-1 可训练 |
-|---|---|---|---|---|
-| BiRNN | 5.14M | 0.58M | 4.56M | 0.58M |
-| BiGRU | 6.30M | 1.73M | 4.56M | 1.73M |
-| BiLSTM | 6.87M | 2.31M | 4.56M | 2.31M |
+## 7. 训练曲线
 
-encoder 的 1 : 3 : 4 比例来自门的数量（RNN 一组权重，GRU 三组，LSTM 四组）。
+下图都来自已有训练产物；accuracy / macro F1 曲线是 **Val**，不是 test。
+完整 loss 和 accuracy 图链接见第 9 节。
 
-值得注意的是 **embedding 表（4.56M）比 encoder 还大，占总参数的 66%**——模型的
-大部分其实是一本词典（SST-2 上只占 37%）。stage 1 冻结它，正是为了在 encoder 还
-不会读的时候，先别让梯度去改写词典。观察 4 里三个模型都在 stage 2 首轮掉点，
-根源也在这个比例。
+| T1：128×2 mean | T2：256×2 mean |
+|---|---|
+| ![T1 validation curves](outputs_transformer_mean/acc_curve.png) | ![T2 validation curves](outputs_transformer_d256_l2_mean/acc_curve.png) |
+| T3：128×4 mean | T4：256×4 mean |
+| ![T3 validation curves](outputs_transformer_d128_l4_mean/acc_curve.png) | ![T4 validation curves](outputs_transformer_d256_l4_mean/acc_curve.png) |
 
-### Packing 与 masked pooling
+| T1 loss | T4 loss |
+|---|---|
+| ![T1 loss](outputs_transformer_mean/loss_curve.png) | ![T4 loss](outputs_transformer_d256_l4_mean/loss_curve.png) |
 
-和 SST-2 项目完全一致，两个陷阱都在 `model/encoder.py` 与 `model/head.py` 里有
-详细注释：
+## 8. 运行与复现
 
-- **不 pack**：`final` 会变成「走完 k 步 padding 之后的状态」，每个长度都不一样。
-- **max pooling 不 mask**：padding 位置是 0，只要真实激活是负的，0 就会赢下 max。
-
-`model/encoder.py` 的自检直接验证了三条不变量（padding 位置为 0、`final` 等于最后
-一个真实 token 处的输出、加更多 padding 结果不变）。
-
----
-
-## 训练配置
-
-| | 值 | 与 SST-2 的差异 |
-|---|---|---|
-| optimizer | Adam, weight_decay 1e-4 | 同 |
-| batch size | 128 | SST-2 是 64。文档量 ×1.7、长度 ×4，一轮约 10 倍工作量 |
-| grad clip | 5.0 | 同（序列长 4 倍，BPTT 的指数更大，更不能省） |
-| label smoothing | 0.05 | 同。4 类的软目标是 (0.95, 0.0167, 0.0167, 0.0167) |
-| dropout | 0.5 | 同——**实测偏大，见下方曲线分析** |
-| MAX_LEN | 128 | SST-2 是 64 且从未触发；这里真的会截断 0.36% |
-| seed | `--seed` 可传 | SST-2 写死 42，这次补上了 |
-
-损失就是 `nn.CrossEntropyLoss(label_smoothing=0.05)`，**直接写在 `train.py` 里，
-没有 `losses/` 包**。SST-2 那边为了一行 CE 包了一个类，这次去掉了：每篇文档只有
-一个预测，没有要忽略的位置，没有辅助头，也不需要类别权重（语料精确平衡），
-包装类没有承担任何东西。相应地 `train_one_epoch` 直接返回一个 float，原来那套
-多分量损失的 dict 累加也一并删了。
-
-### 两阶段
-
-```
-Stage 1 (5 轮)  冻结 embedding，head/encoder 同一档 lr=1e-3
-                → 让随机初始化的 RNN 先学会读固定的 GloVe 向量
-Stage 2 (3 轮)  解冻全部，三档分层 lr：
-                head 3e-4  >  encoder 3e-4  >  embedding 5e-5
-                → 预训练词向量只做轻微漂移，不被冲垮
-```
-
-每一档都套 `CosineAnnealingLR`。
-
-### 复现命令
-
-一条命令跑完三个 cell 的训练与 test 评测（PowerShell）：
+在 AG-News 项目目录和原有 PyTorch 环境中执行：
 
 ```powershell
 conda activate dev
-.\run_all.ps1
+cd C:\code\beatDL\text\1_text_classification\AG-News
 ```
 
-或者手动：
+### 8.1 训练全部八种配置
 
-```bash
-python train.py --cell rnn
-python train.py --cell gru
-python train.py --cell lstm
+以下命令显式给出每组的架构、pooling 和 dropout，共用 seed、batch size 和轮数。
+输出目录加 `_rerun` 后缀，以免覆盖本报告引用的历史实验；如已有同名重跑目录，
+请再换一个新目录。
 
-python eval.py --cell rnn  --split test --save-cm
-python eval.py --cell gru  --split test --save-cm
-python eval.py --cell lstm --split test --save-cm
+```powershell
+$trainArgs = @('--batch-size', '128', '--seed', '42', '--num-workers', '0', '--epochs-stage1', '5', '--epochs-stage2', '3')
+
+python train.py @trainArgs --model rnn --cell rnn --layers 2 --dropout 0.5 --pooling last --output-dir outputs_rnn_rerun
+python train.py @trainArgs --model rnn --cell gru --layers 2 --dropout 0.5 --pooling last --output-dir outputs_gru_rerun
+python train.py @trainArgs --model rnn --cell lstm --layers 2 --dropout 0.5 --pooling last --output-dir outputs_lstm_rerun
+python train.py @trainArgs --model transformer --dim 128 --group 4 --layers 2 --dropout 0.1 --pooling last --output-dir outputs_transformer_rerun
+python train.py @trainArgs --model transformer --dim 128 --group 4 --layers 2 --dropout 0.1 --pooling mean --output-dir outputs_transformer_mean_rerun
+python train.py @trainArgs --model transformer --dim 256 --group 4 --layers 2 --dropout 0.1 --pooling mean --output-dir outputs_transformer_d256_l2_mean_rerun
+python train.py @trainArgs --model transformer --dim 128 --group 4 --layers 4 --dropout 0.1 --pooling mean --output-dir outputs_transformer_d128_l4_mean_rerun
+python train.py @trainArgs --model transformer --dim 256 --group 4 --layers 4 --dropout 0.1 --pooling mean --output-dir outputs_transformer_d256_l4_mean_rerun
 ```
 
-首次运行会自动下载 AG News（11 MB）。**GloVe 不会重复下载**——`config.py` 会先扫
-描同级项目的 `dataset/data/`，找到 `../SST-2/dataset/data/glove/glove.6B.100d.txt`
-就直接用。
+这些命令仍依赖 [config.py](config.py) 中的 GloVe 100d、RNN hidden=256、
+bidirectional=True、MAX_LEN=128、数据切分、优化器和学习率设置，复现时应与第 3 节一致。
+当前 CLI 没有直接覆盖 RNN hidden size 或学习率的参数。
 
-看错在哪里：
+当前 `python train.py --model transformer` 默认是 **128 维、4 头、2 层、mean pooling**；
+RNN 默认是 LSTM、last pooling。Transformer 的默认输出目录仍是 `outputs_transformer/`，
+里面保存的是历史 **last** 基线，因此新训练务必显式指定 `--output-dir`。
 
-```bash
-python predict/predict.py --cell gru --test-mistakes 20
-python predict/predict.py --cell gru --text "Arsenal beat Chelsea 2-1 at the Emirates"
+原有 `run_all.ps1` 仅运行三个 RNN cell 的训练和 test，不包含 Transformer，
+并且使用原始输出目录；不要在想保留现有结果时直接重跑它。
+
+数据缺失时训练入口会下载 AG News；GloVe 优先复用同级 SST-2 项目已有文件，
+不存在时才下载。本次八份日志均使用 SST-2 目录中的 `glove.6B.100d.txt`。
+
+### 8.2 评估全部八组 test 模型
+
+```powershell
+python eval.py --weights outputs_rnn/best.pt --split test --save-cm
+python eval.py --weights outputs_gru/best.pt --split test --save-cm
+python eval.py --weights outputs_lstm/best.pt --split test --save-cm
+python eval.py --weights outputs_transformer/best.pt --split test --save-cm
+python eval.py --weights outputs_transformer_mean/best.pt --split test --save-cm
+python eval.py --weights outputs_transformer_d256_l2_mean/best.pt --split test --save-cm
+python eval.py --weights outputs_transformer_d128_l4_mean/best.pt --split test --save-cm
+python eval.py --weights outputs_transformer_d256_l4_mean/best.pt --split test --save-cm
 ```
 
-单独准备 / 检查数据（不训练）：
+如需评估新训练的 `_rerun` 模型，将对应 weights 路径换成新目录。
+评估会从同目录日志恢复 dim、层数、heads 和 pooling，
+**无需在 eval 命令上再手动指定 mean，也不要为了改 pooling 而覆盖旧实验配置。**
 
-```bash
-python dataset/ag_news.py --download    # 下载 + 打印各 split 统计
-python dataset/glove.py                 # 打印 GloVe 覆盖率与词向量语义自检
+原始 T0 的缺失 test 记录已在本次更新中用上述命令补齐，不需重训。
+完整控制台结果另存于 [eval_test.txt](outputs_transformer/eval_test.txt)。
+
+`--save-cm` 会保存或覆盖对应目录的 `confusion_matrix_test.png`。
+当前 `eval.py` 把指标打印到控制台，不自动追加 test JSON，也不更新 `training_log.json`；
+需要留存文本时可另存终端输出。不要把 `confusion_matrix.png`（val）当成 test。
+
+### 8.3 预测与错误样本
+
+```powershell
+python predict/predict.py --weights outputs_transformer_mean/best.pt --text "Arsenal beat Chelsea 2-1"
+python predict/predict.py --weights outputs_transformer_d256_l2_mean/best.pt --test-mistakes 30
 ```
 
----
+请将 **best.pt、vocab.json、training_log.json 保存在同一个实验目录**。
+Checkpoint 已包含训练后的 embedding，评估/预测无需重新载入 GloVe；
+词表缺失时虽然代码尝试重建，但只有数据和相关配置保持一致才能保证 ID 对齐。
 
-## 训练曲线
+本次只实际执行了 T0 缺失的 test 评估；没有重新训练、运行预测或重复评估其余七组。
 
-### BiGRU Loss（最佳模型）
+## 9. 产物索引与可核对的原始计数
 
-![BiGRU loss](outputs_gru/loss_curve.png)
+| 编号 | 目录 | 配置与逐轮日志 | 训练曲线 | 验证矩阵 | 测试矩阵 |
+|---|---|---|---|---|---|
+| R1 | `outputs_rnn/` | [log](outputs_rnn/training_log.json) | [loss](outputs_rnn/loss_curve.png) · [acc/F1](outputs_rnn/acc_curve.png) | [val](outputs_rnn/confusion_matrix.png) | [test](outputs_rnn/confusion_matrix_test.png) |
+| R2 | `outputs_gru/` | [log](outputs_gru/training_log.json) | [loss](outputs_gru/loss_curve.png) · [acc/F1](outputs_gru/acc_curve.png) | [val](outputs_gru/confusion_matrix.png) | [test](outputs_gru/confusion_matrix_test.png) |
+| R3 | `outputs_lstm/` | [log](outputs_lstm/training_log.json) | [loss](outputs_lstm/loss_curve.png) · [acc/F1](outputs_lstm/acc_curve.png) | [val](outputs_lstm/confusion_matrix.png) | [test](outputs_lstm/confusion_matrix_test.png) |
+| T0 | `outputs_transformer/` | [log](outputs_transformer/training_log.json) | [loss](outputs_transformer/loss_curve.png) · [acc/F1](outputs_transformer/acc_curve.png) | [val](outputs_transformer/confusion_matrix.png) | [test](outputs_transformer/confusion_matrix_test.png) |
+| T1 | `outputs_transformer_mean/` | [log](outputs_transformer_mean/training_log.json) | [loss](outputs_transformer_mean/loss_curve.png) · [acc/F1](outputs_transformer_mean/acc_curve.png) | [val](outputs_transformer_mean/confusion_matrix.png) | [test](outputs_transformer_mean/confusion_matrix_test.png) |
+| T2 | `outputs_transformer_d256_l2_mean/` | [log](outputs_transformer_d256_l2_mean/training_log.json) | [loss](outputs_transformer_d256_l2_mean/loss_curve.png) · [acc/F1](outputs_transformer_d256_l2_mean/acc_curve.png) | [val](outputs_transformer_d256_l2_mean/confusion_matrix.png) | [test](outputs_transformer_d256_l2_mean/confusion_matrix_test.png) |
+| T3 | `outputs_transformer_d128_l4_mean/` | [log](outputs_transformer_d128_l4_mean/training_log.json) | [loss](outputs_transformer_d128_l4_mean/loss_curve.png) · [acc/F1](outputs_transformer_d128_l4_mean/acc_curve.png) | [val](outputs_transformer_d128_l4_mean/confusion_matrix.png) | [test](outputs_transformer_d128_l4_mean/confusion_matrix_test.png) |
+| T4 | `outputs_transformer_d256_l4_mean/` | [log](outputs_transformer_d256_l4_mean/training_log.json) | [loss](outputs_transformer_d256_l4_mean/loss_curve.png) · [acc/F1](outputs_transformer_d256_l4_mean/acc_curve.png) | [val](outputs_transformer_d256_l4_mean/confusion_matrix.png) | [test](outputs_transformer_d256_l4_mean/confusion_matrix_test.png) |
 
-### BiGRU Accuracy / Macro F1
+每个目录另外保存 `best.pt` 与 `vocab.json`。
+`training_log.json` 包含 `meta`（数据、模型、优化器、最佳轮次及最终 val 报告）
+和 `history`（各轮 loss、val acc/F1、实际 LR、耗时）。
 
-![BiGRU acc](outputs_gru/acc_curve.png)
+<details>
+<summary>展开：八张 test 混淆矩阵的整数计数</summary>
 
-### BiRNN Accuracy（对比：起点低得多，且一直在爬）
+顺序统一为 World / Sports / Business / Sci/Tech；每行是真实类别，每列是预测类别，
+每行和为 1,900。Acc = 对角线之和 / 7,600。逐类 precision 用列和作分母，
+recall 用行和作分母。T0 计数来自本次实际 eval 的控制台输出，并与新生成的 PNG 核对；
+其余七组计数来自已有 PNG。
 
-![BiRNN acc](outputs_rnn/acc_curve.png)
+R1 — [outputs_rnn/confusion_matrix_test.png](outputs_rnn/confusion_matrix_test.png)
 
-### 曲线分析：**训练不足，而不是过拟合**
-
-三个模型在第 8 轮的 loss：
-
-| 模型 | train_loss | val_loss | 关系 |
-|---|---:|---:|---|
-| BiRNN | 0.5176 | 0.4700 | train **>** val |
-| BiGRU | 0.3995 | 0.3824 | train **>** val |
-| BiLSTM | 0.3974 | 0.3848 | train **>** val |
-
-**三个模型的训练损失自始至终都高于验证损失，两条线从未交叉。** 这是强正则化的
-典型特征——dropout 在训练时生效、评测时关闭，所以训练损失被人为抬高了。
-
-结合 val loss 到最后一轮仍在下降（GRU 0.3865 → 0.3824），可以确定：
-
-- **8 轮给少了**，模型还没到平台期；
-- **dropout 0.5 对 114k 篇文档偏大**，这个值是从 67k 短片段的 SST-2 直接抄来的，
-  当时是必要的，这里可能在白白限制容量。
-
-这两条都是下一步该做的（见「下一步」），本轮结论里的绝对数字因此应视为
-**这个预算下的下界**，而不是这些架构的上限。
-
----
-
-## 完整 test 结果
-
-### BiGRU（最佳模型，7,600 篇）
-
-| class | prec | recall | f1 | support |
-|---|---:|---:|---:|---:|
-| World | 0.9362 | 0.9189 | 0.9275 | 1900 |
-| Sports | 0.9728 | 0.9784 | 0.9756 | 1900 |
-| Business | 0.8894 | 0.8716 | 0.8804 | 1900 |
-| Sci/Tech | 0.8792 | 0.9079 | 0.8933 | 1900 |
-| **accuracy** | | | **0.9192** | 7600 |
-| **macro F1** | | | **0.9192** | |
-
-![BiGRU test confusion matrix](outputs_gru/confusion_matrix_test.png)
-
-### 错误结构：一半的错误是同一对类别
-
-| 模型 | 总错误 | Business ↔ Sci/Tech | 占比 | World ↔ Business | World ↔ Sci/Tech | 涉及 Sports |
-|---|---:|---:|---:|---:|---:|---:|
-| BiRNN | 854 | 382 | 44.7% | 181 | 127 | 164 |
-| BiGRU | 614 | **292** | **47.6%** | 129 | 100 | 93 |
-| BiLSTM | 619 | 284 | 45.9% | 122 | 99 | 114 |
-
-**Business 和 Sci/Tech 互相混淆，占了将近一半的错误。** 这不是模型的缺陷，而是
-标注本身的模糊：一篇讲芯片厂财报、电信运营商并购、或者互联网公司股价的新闻，
-放进哪一类都说得通。AG News 只给了单标签。
-
-值得注意的是从 RNN 到 GRU，**这一对的错误绝对数下降了（382 → 292），但占总错误的
-比例反而上升（44.7% → 47.6%）**。也就是说门控 cell 多出来的准确率主要来自修好其它
-类别，这对真正困难的类别改善最少 —— 因为它们的困难来自标签歧义，不是来自记忆长度。
-
-另一头，**Sports 几乎被解决了**：F1 0.9756，只有 93 个错误涉及它。体育新闻的词汇
-（球员名、比分、联赛）与其余三类几乎不相交。
-
-### 三个模型的混淆矩阵
-
-| BiRNN | BiGRU | BiLSTM |
-|---|---|---|
-| ![rnn](outputs_rnn/confusion_matrix_test.png) | ![gru](outputs_gru/confusion_matrix_test.png) | ![lstm](outputs_lstm/confusion_matrix_test.png) |
-
----
-
-## 实验结论
-
-1. **门控 > 无门控，在长文档上尤其明显。** GRU/LSTM 比 vanilla RNN 高 3.16 个点，
-   错误少 28%。序列从 SST-2 的中位 20 词变成 44 词后，差距从 1.95 个点扩大到
-   3.16 个点。**这条推翻了我动手前"三者会挤在 1 个点以内"的预测。**
-2. **GRU 与 LSTM 打平**（0.9192 vs 0.9186，差 5 篇文档）。单 seed 下这不构成排序，
-   但 GRU 少用 0.57M 参数达到同样效果，是更划算的默认选择。
-3. **收敛速度的差距比终点差距更大**：门控 cell 第 1 轮就超过 RNN 训练 8 轮的成绩。
-4. **两阶段微调有效但收益不大**（+0.3 ~ +0.5 个点），且三个模型无一例外在解冻的
-   第一轮先掉点再涨回来。
-5. **错误高度集中在 Business ↔ Sci/Tech**（约一半），且这部分改善最少——它来自
-   标签歧义而非模型能力。
-6. **本轮训练不足**：train loss 始终高于 val loss，val loss 到最后一轮仍在降。
-   报告的数字是这个预算下的下界。
-
-### 一个必须说明的参照
-
-回想公开报告的经典基线（**以下为文献记忆值，非本项目实测**）：词袋约 88.8%，
-ngrams TF-IDF 约 92.4%，fastText 约 92.5%，BERT-base 微调约 94.5%。
-
-也就是说，**本项目最好的 BiGRU（91.92%）大致与词袋/ngram 类方法持平，甚至可能略低
-于 ngrams TF-IDF**。这与「主题分类很大程度上是词汇任务」的直觉一致：一个双向 GRU
-读完 44 个词，并没有比统计词频高明多少。
-
-要判断循环结构究竟贡献了多少，**必须自己跑一个 bag-of-words 下界 baseline**——
-这是本项目最大的缺口，见下一步。
-
----
-
-## 已知限制
-
-- **单 seed。** `--seed` 已经支持但只跑了 42 这一个。GRU 与 LSTM 的 0.06 个点差距
-  完全没有意义；「门控 > RNN」的 3.16 个点足够大，相对可信。
-- **训练预算不足**（见曲线分析）：8 轮未到平台期，dropout 0.5 可能偏大。
-- **只测 last pooling。** `max` / `mean` 已实现但未做对照。对 44 词的文档，
-  `max` 很可能更强（一个决定性词就该能带动预测）。
-- **没有非 RNN 下界 baseline**——这是最要紧的缺口，见上面「一个必须说明的参照」。
-- **没有 GloVe 消融。** `--no-glove` 可用，但注意 SST-2 项目里发现的坑：
-  `--no-glove` 走 `nn.Embedding` 默认的 `N(0,1)` 初始化，而 GloVe 向量的
-  per-dim std ≈ 0.53、未命中词是 `N(0,0.1)`，**尺度并不对齐**，这个消融要先修
-  初始化才有意义。本项目沿用了同样的代码，同样的坑还在。
-- GloVe 只用了 100d，未试 300d。
-- 未做 early stopping，轮数靠手动指定。
-- dropout / hidden size / 层数全部直接沿用 SST-2 的值，未针对本任务调过。
-
-### 环境已知问题：cuDNN RNN 退出崩溃
-
-本机（Windows 11 + torch 2.11.0+cu128 + cuDNN 9.19）上，**用过带 dropout 的
-cuDNN RNN 且处于 train 模式的进程，退出时必崩**：
-
-```
-STATUS_STACK_BUFFER_OVERRUN   0xC0000409   exit code -1073740791
+```text
+1640   76  108   76
+  15 1858   16   11
+  73   26 1594  207
+  51   20  175 1654
 ```
 
-崩在 `main()` 返回之后的 DLL 卸载阶段，**所有 checkpoint / 日志 / 图片都已经写完
-落盘**，结果完全有效。二分定位到的触发条件是 cuDNN 的 dropout state descriptor：
+R2 — [outputs_gru/confusion_matrix_test.png](outputs_gru/confusion_matrix_test.png)
 
-| 条件 | 退出码 |
-|---|---|
-| `nn.LSTM(dropout=0.5).cuda().train()` + 一次前向 | **崩** |
-| 同上但 `dropout=0.0` | 0 |
-| 同上但 `.eval()` | 0 |
-| 同上但 `cudnn.enabled = False` | 0 |
-| 同上但在 CPU | 0 |
-
-这解释了为什么 `train.py` 崩而 `eval.py` 不崩 —— 后者调了 `model.eval()`，
-descriptor 根本没被创建。同样的代码在 SST-2 项目里也会崩（已验证），只是当时
-一条条手敲命令，没人看退出码，所以从未被发现。
-
-修复见 `train.py:clean_exit()`：三个入口的末尾都改走 `TerminateProcess`。注意
-**`os._exit()` 不管用** —— 它在 Windows 上最终调到 `ExitProcess`，仍然会执行
-`DLL_PROCESS_DETACH`，而崩溃正是发生在那里（实测依旧 -1073740791）。
-
-没有采用的替代方案：关掉 cuDNN 可以修好，但实测慢 2.7 倍（本项目的 encoder 形状，
-BiLSTM 2×256、batch 128、96 步：41.4 ms/step → 112.2 ms/step），等于整个训练预算；
-把 RNN 的 dropout 设成 0、改用手动堆叠单层 RNN 加 `nn.Dropout` 也可行，但为了一个
-纯粹表面的问题去改模型代码不值得。
-
----
-
-## 下一步
-
-### 1. bag-of-words 下界 baseline（最优先）
-
-TF-IDF + 逻辑回归，几十行、几秒钟。**如果它就有 91%，那本项目的 BiGRU 等于白跑**，
-循环结构的价值被证伪；如果只有 87%，那 4 个点就是序列建模的真实贡献。
-不做这一步，上面所有结论都缺一个尺度。
-
-### 2. 加长训练 + 调小 dropout
-
-曲线明确显示训练不足。建议 `--epochs-stage1 12 --epochs-stage2 6` 配合
-`config.DROPOUT = 0.3` 再跑一轮，并用 `--output-dir` 另存以便对比。
-
-### 3. 多 seed
-
-至少 3 个 seed，报告均值 ± 标准差。当前 GRU 与 LSTM 的排序毫无统计意义。
-
-### 4. max pooling 对照
-
-44 词的文档用 `last` pooling 是最苛刻的设定，`--pooling max` 大概率更强。
-
-### 5. 错误样本分析
-
-`python predict/predict.py --cell gru --test-mistakes 30`，重点看那 292 条
-Business ↔ Sci/Tech 里有多少是标注本身就有歧义的。
-
----
-
-## 文件结构
-
+```text
+1746   28   72   54
+  16 1859   16    9
+  57   13 1656  174
+  46   11  118 1725
 ```
+
+R3 — [outputs_lstm/confusion_matrix_test.png](outputs_lstm/confusion_matrix_test.png)
+
+```text
+1736   47   61   56
+   9 1866   17    8
+  61   17 1650  172
+  43   16  112 1729
+```
+
+T0 — [outputs_transformer/confusion_matrix_test.png](outputs_transformer/confusion_matrix_test.png)
+
+```text
+1724   39   82   55
+  12 1868   12    8
+  49    9 1649  193
+  41   10   95 1754
+```
+
+T1 — [outputs_transformer_mean/confusion_matrix_test.png](outputs_transformer_mean/confusion_matrix_test.png)
+
+```text
+1737   32   67   64
+  11 1874    9    6
+  53   11 1638  198
+  39    9   95 1757
+```
+
+T2 — [outputs_transformer_d256_l2_mean/confusion_matrix_test.png](outputs_transformer_d256_l2_mean/confusion_matrix_test.png)
+
+```text
+1736   28   72   64
+   7 1874   11    8
+  42   12 1648  198
+  36   10   84 1770
+```
+
+T3 — [outputs_transformer_d128_l4_mean/confusion_matrix_test.png](outputs_transformer_d128_l4_mean/confusion_matrix_test.png)
+
+```text
+1738   36   68   58
+   6 1877   11    6
+  47   10 1640  203
+  44   10   83 1763
+```
+
+T4 — [outputs_transformer_d256_l4_mean/confusion_matrix_test.png](outputs_transformer_d256_l4_mean/confusion_matrix_test.png)
+
+```text
+1740   31   66   63
+  15 1871    8    6
+  57   11 1634  198
+  42    8  100 1750
+```
+
+</details>
+
+## 10. 文件结构
+
+```text
 AG-News/
-├── config.py                 所有超参与路径；GloVe 跨项目复用的扫描逻辑
+├── config.py                    Paths and shared/model-specific defaults
 ├── dataset/
-│   ├── ag_news.py            下载、csv 解析、清洗、分层切分、Dataset、collate
-│   ├── vocab.py              分词器 + 词表（与 SST-2 保持一致，故覆盖率可比）
-│   ├── glove.py              GloVe 下载 + 构建 embedding 矩阵
-│   └── data/                 语料（gitignore）
+│   ├── ag_news.py               CSV cleaning, split, Dataset and collate
+│   ├── vocab.py                 Tokenization and word-to-ID vocabulary
+│   └── glove.py                 GloVe loading and embedding initialization
 ├── model/
-│   ├── embedding.py          backbone：词向量表 + freeze/unfreeze
-│   ├── encoder.py            neck：RNN/GRU/LSTM + packing
-│   ├── head.py               head：masked pooling + linear
-│   └── rnn_classifier.py     三者拼装 + parameter_groups()
-├── utils/
-│   ├── download.py           多连接断点续传（新增 extract_tar）
-│   ├── metrics.py            混淆矩阵 → accuracy / per-class P-R-F1 / macro-F1
-│   └── viz.py                预测行格式化 + 混淆矩阵热力图
-├── train.py                  两阶段训练主入口（损失内联，无 losses/ 包）
-├── eval.py                   在 test/val/train 上评测某个 checkpoint
-├── predict/predict.py        推理：自由文本 / 文件 / 随机 test / 错误样本
-├── run_all.ps1               串行跑完三个 cell 的训练 + test 评测
-└── README.md
+│   ├── embedding.py             Shared token embedding
+│   ├── encoder.py               RNN/GRU/LSTM with packing
+│   ├── head.py                  Masked pooling and linear classifier
+│   └── rnn_classifier.py        RNN model and parameter groups
+├── model_transformer/
+│   ├── transformer_naive.py     Hand-written Post-LN attention + FFN
+│   ├── encoder.py               Projection, positions and stacked layers
+│   └── transformer_classifier.py
+├── utils/                       Metrics, visualization and download helpers
+├── train.py                     Shared two-stage training entry point
+├── eval.py                      Evaluate a saved checkpoint
+├── predict/predict.py           Text prediction and error inspection
+├── run_all.ps1                  Three RNN cells only
+└── outputs_*/                   Per-experiment artifacts
 ```
 
-与 SST-2 的结构差异只有两处，都是刻意的：**没有 `losses/` 包**（一行 CE 不值得
-包类），以及 `dataset/` 里多了一个分层切分函数（因为 test 标签公开）。
+Loss 直接使用 `train.py` 中的交叉熵，没有单独的 `losses/` 包；
+RNN 与 Transformer 共用词表、embedding、分类头、数据和训练入口。
 
----
+## 11. 结论边界与后续方向
 
-## 输出文件
+本轮已完成 RNN cell、Transformer last/mean，以及 mean 下 128/256 维 × 2/4 层的训练对照。
+当前默认 **128×2 + mean** 保持不变：它在这组实验中验证成绩最高、记录的训练耗时最低。
+**256×2 + mean 的 92.47% 是已保存 test 结果中的最高观察值**，不是经过多 seed 确认的稳定优势。
 
-每个 cell 一个目录（`outputs_rnn/` `outputs_gru/` `outputs_lstm/`）：
+仍需注意：
 
-| 文件 | 内容 |
-|---|---|
-| `best.pt` | val 准确率最高的那一轮权重 |
-| `vocab.json` | 该次训练用的词表（gitignore；缺失时可确定性重建） |
-| `training_log.json` | `meta`（完整配置、GloVe 覆盖率、起止时间、best_val、final_val）+ `history`（每轮 loss/acc/macro-F1/各档 lr/耗时） |
-| `loss_curve.png` | train vs val 交叉熵，虚线标 stage 2 起点 |
-| `acc_curve.png` | val 准确率与 macro-F1 |
-| `confusion_matrix.png` | 最佳 checkpoint 在 **val** 上的混淆矩阵 |
-| `confusion_matrix_test.png` | `eval.py --split test --save-cm` 生成 |
+- 所有配置只运行 seed=42，没有均值、标准差或显著性检验；小差距应视为待验证观察。
+- 八组 test 已全部补齐；所有 checkpoint 都由 val 选择，没有根据 test 更换轮次。
+- 不同架构的容量、dropout、pooling 未对齐；同样是两层不代表同等计算量或表征能力。
+- 四个 Transformer 尺寸共用一套学习率和 8 轮预算，未对每种尺寸分别调优；
+  当前无 early stopping，也没有不同预算的对照。
+- 已知语料重复未清理；严格的去重划分应作为新实验协议，不能混入旧表直接比较。
+- 暂无 max pooling、RNN mean pooling、无 GloVe、300d embedding 或 TF-IDF + 线性分类器对照。
+  如做无 GloVe 实验，还需明确随机初始化尺度及是否跳过冻结随机 embedding 的 Stage 1。
+- 耗时缺少统一硬件、负载与重复测量记录，不用于给架构作普遍速度排序。
+
+后续优先在固定划分下重复若干训练 seed，以 Val 比较配置，再按预先确定的评估规则报告 test；
+若继续利用已经查看的 test 结果迭代设计，应如实说明它已参与实验决策。
+
+### 历史环境备注：Windows cuDNN RNN 退出问题
+
+此前在本机 Windows 11、torch 2.11.0+cu128、cuDNN 9.19 环境中记录过：
+RNN 使用 cuDNN dropout 后，进程在训练结束的退出清理阶段报
+`0xC0000409 / -1073740791`。现有 `train.py:clean_exit()` 保留了针对
+RNN 路径的 workaround，Transformer 路径正常返回。
+
+这是项目已有环境排查记录，本次没有重新验证其触发条件，也不视为所有版本都会出现的行为。
+若复现时退出异常，应先核对 checkpoint、日志与图片是否完整，不能仅凭退出码认定训练结果有效或无效。

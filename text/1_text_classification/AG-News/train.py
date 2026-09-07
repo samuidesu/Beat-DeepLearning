@@ -1,4 +1,4 @@
-"""Training entry point for RNN topic classification on AG News.
+"""Training entry point for RNN and Transformer topic classification on AG News.
 
 The recurrent CELL is selectable and each cell owns its output folder:
     --cell rnn   -> vanilla Elman RNN -> outputs_rnn/
@@ -6,6 +6,9 @@ The recurrent CELL is selectable and each cell owns its output folder:
     --cell gru   -> GRU               -> outputs_gru/
 so rnn-vs-lstm-vs-gru is a clean single-variable comparison sharing everything
 else (vocabulary, GloVe init, pooling, loss, schedule, eval protocol).
+
+Use --model transformer for the hand-written Transformer encoder. It reuses
+the word-level data pipeline and training loop, writing to outputs_transformer/.
 
 Two-stage finetuning (same shape as the SST-2 and segmentation experiments,
 with the GloVe embedding table playing the pretrained-backbone role):
@@ -28,6 +31,7 @@ freezing RANDOM embeddings means training an encoder to read noise.
 Usage:
     python train.py                        # LSTM, config.py defaults
     python train.py --cell rnn             # vanilla RNN -> outputs_rnn/
+    python train.py --model transformer    # Transformer -> outputs_transformer/
     python train.py --download             # fetch AG News + GloVe first
     python train.py --no-glove --epochs-stage1 0   # from-scratch embeddings
     python train.py --pooling max --batch-size 64 --device cpu
@@ -54,6 +58,7 @@ from torch.utils.data import DataLoader
 
 import config
 from model.rnn_classifier import RNNClassifier
+from model_transformer.transformer_classifier import TransformerClassifier
 from dataset.ag_news import (
     AGNewsDataset,
     ag_news_present,
@@ -228,10 +233,8 @@ def train_one_epoch(model, loader, criterion, optimizer, device, epoch_desc="",
 
         optimizer.zero_grad()
         loss.backward()
-        # RNN-specific and NOT optional: backprop through time can produce a
-        # single enormous gradient that undoes an epoch of progress. Clipping
-        # rescales the whole gradient (preserving its direction) whenever its
-        # norm exceeds the threshold.
+        # Rescale large gradients while preserving their direction.
+        # This is especially important for the recurrent models.
         if grad_clip:
             nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
         optimizer.step()
@@ -359,7 +362,7 @@ def save_log(history, output_dir, meta=None):
 
 
 def collect_run_meta(args, device, train_loader, val_loader, vocab, *,
-                     model_name, extra=None):
+                     model_name, model_cfg, extra=None):
     """Snapshot the run's config + training params for training_log.json.
 
     Records enough to reproduce the run from the log alone: corpus/vocab
@@ -385,16 +388,7 @@ def collect_run_meta(args, device, train_loader, val_loader, vocab, *,
             "label_counts": train_loader.dataset.label_counts(),
             "val_unk_rate": round(val_loader.dataset.unk_rate(), 4),
         },
-        "model_cfg": {
-            "cell": args.cell,
-            "embed_dim": config.EMBED_DIM,
-            "hidden_size": config.HIDDEN_SIZE,
-            "num_layers": config.NUM_LAYERS,
-            "bidirectional": config.BIDIRECTIONAL,
-            "pooling": args.pooling,
-            "dropout": config.DROPOUT,
-            "num_classes": config.NUM_CLASSES,
-        },
+        "model_cfg": {"model_type": args.model, **model_cfg},
         "optim": {
             "optimizer": "Adam",
             "weight_decay": config.WEIGHT_DECAY,
@@ -484,7 +478,7 @@ def build_layered_optimizer(model, lr_head, lr_encoder, lr_embedding, weight_dec
     The split comes from model.parameter_groups() (frozen params excluded):
 
         head      -> lr_head      (from-scratch classifier, fastest)
-        encoder   -> lr_encoder   (from-scratch RNN, same tier in stage 1)
+        encoder   -> lr_encoder   (from-scratch encoder, same tier in stage 1)
         embedding -> lr_embedding (pretrained GloVe, slowest)
 
     Input:
@@ -517,7 +511,9 @@ def count_trainable(model):
 # Main
 # -----------------------------------------------------------------------------
 def parse_args():
-    p = argparse.ArgumentParser(description="Train an RNN topic classifier on AG News")
+    p = argparse.ArgumentParser(description="Train a topic classifier on AG News")
+    p.add_argument("--model", choices=["rnn", "transformer"], default="rnn",
+                   help="encoder family; rnn uses --cell to choose its recurrent cell")
     p.add_argument("--download", action="store_true",
                    help="download AG News (and GloVe) before training")
     p.add_argument("--device", default=config.DEVICE, help="cuda / mps / cpu / auto")
@@ -535,15 +531,40 @@ def parse_args():
     p.add_argument("--cell", choices=["rnn", "lstm", "gru"], default=config.CELL,
                    help="recurrent cell: rnn (vanilla) / lstm / gru. Each "
                         "writes to its own outputs_<cell>/ folder")
-    p.add_argument("--pooling", choices=["last", "max", "mean"], default=config.POOLING,
-                   help="how token features collapse into a document vector")
+    p.add_argument("--dim", type=int, default=config.TRANSFORMER_DIM,
+                   help="Transformer width; must be divisible by --group")
+    p.add_argument("--group", type=int, default=config.TRANSFORMER_GROUP,
+                   help="number of Transformer attention heads")
+    p.add_argument("--layers", type=int, default=None,
+                   help="encoder layers (default: model-specific config.py value)")
+    p.add_argument("--dropout", type=float, default=None,
+                   help="dropout probability (default: model-specific config.py value)")
+    p.add_argument("--pooling", choices=["last", "max", "mean"], default=None,
+                   help="document pooling (default: Transformer mean, RNN last; "
+                        "configured in config.py)")
     p.add_argument("--no-glove", action="store_true",
                    help="train word vectors from scratch (no GloVe init)")
     p.add_argument("--output-dir", default=None,
-                   help="output folder name/path. Default: outputs_<cell>/. A "
+                   help="output folder name/path. Default: outputs_<cell>/ or "
+                        "outputs_transformer/. A "
                         "bare name is placed under the project root; an "
                         "absolute path is used as-is.")
-    return p.parse_args()
+    args = p.parse_args()
+    is_transformer = args.model == "transformer"
+    if args.pooling is None:
+        args.pooling = config.TRANSFORMER_POOLING if is_transformer else config.POOLING
+    if args.layers is None:
+        args.layers = config.TRANSFORMER_LAYERS if is_transformer else config.NUM_LAYERS
+    if args.dropout is None:
+        args.dropout = config.TRANSFORMER_DROPOUT if is_transformer else config.DROPOUT
+    if args.layers <= 0 or not 0 <= args.dropout <= 1:
+        p.error("--layers must be positive and --dropout must be in [0, 1]")
+    if is_transformer and (args.dim <= 0 or args.group <= 0 or args.dim % args.group):
+        p.error("--dim and --group must be positive, and --group must divide --dim")
+    if min(args.epochs_stage1, args.epochs_stage2) < 0 or not (
+            args.epochs_stage1 + args.epochs_stage2):
+        p.error("stage epochs must be nonnegative, with at least one epoch in total")
+    return args
 
 
 def main():
@@ -551,18 +572,20 @@ def main():
     set_seed(args.seed)
     device = get_device(args.device)
     use_glove = config.USE_GLOVE and not args.no_glove
+    is_transformer = args.model == "transformer"
+    model_name = "Transformer" if is_transformer else f"Bi{args.cell.upper()}"
 
-    # Output folder: one per cell so the three experiments never overwrite
-    # each other; --output-dir overrides (used for ablations).
+    # Separate model outputs; --output-dir overrides for additional experiments.
     if args.output_dir:
         output_dir = (args.output_dir if os.path.isabs(args.output_dir)
                       else os.path.join(config.PROJECT_ROOT, args.output_dir))
     else:
-        output_dir = config.output_dir_for_cell(args.cell)
+        output_dir = (config.OUTPUT_DIR_TRANSFORMER if is_transformer
+                      else config.output_dir_for_cell(args.cell))
     os.makedirs(output_dir, exist_ok=True)
     print(f"Device: {device}  seed: {args.seed}")
     print(f"Data root: {config.DATA_ROOT}")
-    print(f"Output dir: {output_dir}  ({args.cell} cell, {args.pooling} pooling, "
+    print(f"Output dir: {output_dir}  ({model_name}, {args.pooling} pooling, "
           f"{'GloVe' if use_glove else 'scratch'} embeddings)")
 
     # ---- Data ----
@@ -579,19 +602,24 @@ def main():
     vectors = None
     if use_glove:
         vectors, n_found = build_embedding_matrix(vocab)
-    model = RNNClassifier(
-        vocab_size=len(vocab),
+    model_cfg = dict(
         num_classes=config.NUM_CLASSES,
         embed_dim=config.EMBED_DIM,
-        hidden_size=config.HIDDEN_SIZE,
-        cell=args.cell,
-        num_layers=config.NUM_LAYERS,
-        bidirectional=config.BIDIRECTIONAL,
+        num_layers=args.layers,
         pooling=args.pooling,
-        dropout=config.DROPOUT,
+        dropout=args.dropout,
         pad_idx=config.PAD_IDX,
-        pretrained_vectors=vectors,
-    ).to(device)
+    )
+    if is_transformer:
+        model_cfg.update(dim=args.dim, group=args.group, max_len=config.MAX_LEN)
+        model_class = TransformerClassifier
+    else:
+        model_cfg.update(hidden_size=config.HIDDEN_SIZE, cell=args.cell,
+                         bidirectional=config.BIDIRECTIONAL)
+        model_class = RNNClassifier
+    model = model_class(vocab_size=len(vocab), pretrained_vectors=vectors,
+                        **model_cfg).to(device)
+    print(f"Model config: {model_cfg}")
 
     # Plain cross-entropy: one prediction per document, no positions to
     # ignore, no auxiliary heads -- so there is nothing for a Loss class to
@@ -616,6 +644,16 @@ def main():
     history = []
     best = {"accuracy": -1.0, "epoch": -1}
     started = time.strftime("%Y-%m-%d %H:%M:%S")
+    extra = {"glove": use_glove,
+             "glove_path": config.GLOVE_PATH if use_glove else None}
+    if use_glove:
+        extra["glove_coverage"] = round(n_found / len(vocab), 4)
+    meta = collect_run_meta(args, device, train_loader, val_loader, vocab,
+                            model_name=f"{model_name} ({args.pooling} pooling)",
+                            model_cfg=model_cfg, extra=extra)
+    meta["started"] = started
+    # Save the architecture before training so interrupted runs remain loadable.
+    save_log(history, output_dir, meta)
 
     # ---- Stage 1: freeze the embedding, train encoder + head ----
     if args.epochs_stage1 > 0:
@@ -652,21 +690,10 @@ def main():
                          scheduler, args.epochs_stage2, device, history, best, output_dir)
 
     # ---- Save logs + curves ----
-    extra = {"glove": use_glove,
-             "glove_path": config.GLOVE_PATH if use_glove else None}
-    if use_glove:
-        extra["glove_coverage"] = round(n_found / len(vocab), 4)
-    meta = collect_run_meta(args, device, train_loader, val_loader, vocab,
-                            model_name=f"Bi{args.cell.upper()} ({args.pooling} pooling)",
-                            extra=extra)
-    # Recorded here rather than inside collect_run_meta so "started" is the
-    # real start time (the SST-2 project got this wrong and its logs hold the
-    # FINISH time under that name).
-    meta["started"] = started
     meta["finished"] = time.strftime("%Y-%m-%d %H:%M:%S")
     meta["best_val"] = {"accuracy": round(best["accuracy"], 4), "epoch": best["epoch"]}
     save_log(history, output_dir, meta)
-    plot_curves(history, output_dir, title_prefix=f"Bi{args.cell.upper()}")
+    plot_curves(history, output_dir, title_prefix=model_name)
     print(f"\nDone. Best VAL accuracy={best['accuracy']:.4f} @ epoch {best['epoch']}")
     print(f"Artifacts written to: {output_dir}")
 
@@ -681,16 +708,26 @@ def main():
         plot_confusion_matrix(
             result["matrix"], config.CLASS_NAMES,
             os.path.join(output_dir, "confusion_matrix.png"),
-            title=f"Bi{args.cell.upper()} val confusion matrix")
+            title=f"{model_name} val confusion matrix")
         meta["final_val"] = summarize_result(result)
         save_log(history, output_dir, meta)
         print("\nNow score the held-out test split:")
-        print(f"  python eval.py --weights {os.path.join(output_dir, 'best.pt')} "
+        print(f'  python eval.py --weights "{best_path}" '
               f"--split test --save-cm")
+    # Notify only after training and the final report finish successfully.
+    try:
+        if os.name == "nt":
+            import winsound
+
+            winsound.Beep(1000, 500)
+        else:
+            print("\a", end="", flush=True)
+    except RuntimeError:
+        pass  # An unavailable audio device must not fail a completed run.
+    return args.model
 
 
 if __name__ == "__main__":
-    main()
-    # Must be the last thing that runs: see clean_exit() for why a normal
-    # return crashes this process with -1073740791 on Windows.
-    clean_exit()
+    if main() == "rnn":
+        # Only recurrent training needs the cuDNN teardown workaround.
+        clean_exit()

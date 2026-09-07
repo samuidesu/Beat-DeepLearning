@@ -7,11 +7,8 @@ document classifier does the opposite -- it must COLLAPSE a variable number of
 token features into one fixed vector. Three ways to do it, selectable via
 config.POOLING:
 
-    "last"  the encoder's final hidden state (forward end + backward end).
-            The textbook RNN classifier: everything the recurrence chose to
-            remember, and nothing else. Its weakness is that a single vector
-            has to survive the whole walk -- and on AG News that walk is ~44
-            tokens, not SST-2's 7.
+    "last"  the encoder's document vector: forward end + backward end for
+            RNNs, or the last real-token feature for the Transformer.
     "max"   element-wise max over time. Each feature dimension reports its
             strongest activation anywhere in the document, which suits topic
             classification: one decisive word ("midfielder", "Nasdaq") should
@@ -43,7 +40,7 @@ class ClassifierHead(nn.Module):
     """Masked pooling + dropout + linear classifier.
 
     Args:
-        in_features: encoder output width (hidden_size * directions).
+        in_features: encoder output width (RNN hidden_size * directions, or dim).
         num_classes: 4 for AG News.
         pooling: "last" / "max" / "mean".
         dropout: applied to the pooled document vector.
@@ -74,8 +71,7 @@ class ClassifierHead(nn.Module):
              lengths: torch.Tensor) -> torch.Tensor:
         """Collapse [B, L, F] token features into [B, F]. See module docstring."""
         if self.pooling == "last":
-            # The encoder already extracted this correctly (packing guarantees
-            # it is the state after the last REAL token, in both directions).
+            # The encoder already selected the appropriate non-PAD features.
             return final
 
         mask = self._mask_from_lengths(lengths, outputs.size(1))[..., None]  # [B, L, 1]
