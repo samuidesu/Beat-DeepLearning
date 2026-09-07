@@ -12,3 +12,12 @@ __pycache__/
 # Detection outputs (regenerated fresh on every detect.py run)
 # `**/` so it also matches the nested cnn/.../PASCAL_VOC/detect/results/ folder.
 **/detect/results/
+# Same for the segmentation / text-classification inference scripts.
+**/segment/results/
+**/predict/results/
+
+# Per-run vocabularies are derived data: rebuilt deterministically from
+# train.tsv whenever missing, and the checkpoints they pair with are *.pt
+# (untracked too). Keep the logs and curves, not 6 identical copies of a
+# 360 KB json.
+**/outputs_*/vocab.json
