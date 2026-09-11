@@ -1,0 +1,609 @@
+{
+  "generated_at_utc": "2026-09-11T02:07:52.832929+00:00",
+  "command": "C:\\Users\\Xiaochuan\\miniconda3\\envs\\dev\\python.exe eval_bert.py --weights outputs_bert_lr2e-5/best.pt --split test --device cuda --save-cm",
+  "run": "outputs_bert_lr2e-5",
+  "weights": "C:\\code\\beatDL\\text\\2_sequence_labeling\\CoNLL-2003\\outputs_bert_lr2e-5\\best.pt",
+  "protocol": "Dev-selected checkpoint; verified dev F1; full split, eval mode, no-grad, FP32; no tuning.",
+  "python_executable": "C:\\Users\\Xiaochuan\\miniconda3\\envs\\dev\\python.exe",
+  "python": "3.12.13",
+  "torch": "2.11.0+cu128",
+  "transformers": "5.17.0",
+  "device": "cuda",
+  "device_name": "NVIDIA GeForce RTX 5080",
+  "batch_size": 128,
+  "num_workers": 0,
+  "meta": {
+    "model": "BERT",
+    "device": "cuda",
+    "seed": 42,
+    "started": "2026-09-10 20:28:11",
+    "data": {
+      "data_root": "C:\\code\\beatDL\\text\\2_sequence_labeling\\CoNLL-2003\\dataset\\data",
+      "train_sentences": 14041,
+      "train_tokens": 203621,
+      "train_pieces": 272595,
+      "train_batches": 439,
+      "dev_sentences": 3250,
+      "batch_size": 32,
+      "eval_batch_size": 128,
+      "num_workers": 0,
+      "max_len": 512,
+      "longest_pieces": 173,
+      "tags": [
+        "O",
+        "B-PER",
+        "I-PER",
+        "B-LOC",
+        "I-LOC",
+        "B-ORG",
+        "I-ORG",
+        "B-MISC",
+        "I-MISC"
+      ],
+      "dev_unk_rate": 0.0
+    },
+    "model_cfg": {
+      "model_type": "bert",
+      "bert": "google-bert/bert-base-cased",
+      "num_tags": 9,
+      "dropout": 0.1,
+      "pad_id": 0,
+      "params": 107726601
+    },
+    "optim": {
+      "optimizer": "AdamW",
+      "lr": 2e-05,
+      "weight_decay": 0.01,
+      "schedule": "linear warmup + linear decay, stepped per update",
+      "warmup_steps": 175,
+      "total_steps": 1756,
+      "epochs": 4,
+      "grad_clip": 1.0,
+      "label_smoothing": 0.0,
+      "ignore_index": -100,
+      "precision": "bf16"
+    },
+    "finished": "2026-09-10 20:29:19",
+    "best_dev": {
+      "f1": 0.9473,
+      "epoch": 4
+    },
+    "final_dev": {
+      "f1": 0.9473,
+      "precision": 0.943,
+      "recall": 0.9517,
+      "macro_f1": 0.9391,
+      "token_accuracy": 0.9911,
+      "all_o_accuracy": 0.8325,
+      "n_gold": 5942,
+      "n_pred": 5997,
+      "invalid_transitions": 37,
+      "invalid_rate": 0.00072,
+      "per_type": {
+        "PER": {
+          "precision": 0.9694,
+          "recall": 0.9788,
+          "f1": 0.9741,
+          "support": 1842,
+          "predicted": 1860
+        },
+        "LOC": {
+          "precision": 0.9697,
+          "recall": 0.9597,
+          "f1": 0.9647,
+          "support": 1837,
+          "predicted": 1818
+        },
+        "ORG": {
+          "precision": 0.9123,
+          "recall": 0.9381,
+          "f1": 0.925,
+          "support": 1341,
+          "predicted": 1379
+        },
+        "MISC": {
+          "precision": 0.884,
+          "recall": 0.9013,
+          "f1": 0.8926,
+          "support": 922,
+          "predicted": 940
+        }
+      },
+      "matrix": [
+        [
+          42661,
+          11,
+          2,
+          6,
+          1,
+          22,
+          10,
+          28,
+          18
+        ],
+        [
+          5,
+          1810,
+          1,
+          7,
+          0,
+          15,
+          1,
+          3,
+          0
+        ],
+        [
+          4,
+          4,
+          1293,
+          0,
+          1,
+          1,
+          3,
+          0,
+          1
+        ],
+        [
+          7,
+          9,
+          1,
+          1767,
+          2,
+          29,
+          5,
+          17,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          1,
+          243,
+          0,
+          9,
+          0,
+          4
+        ],
+        [
+          12,
+          19,
+          0,
+          12,
+          0,
+          1274,
+          6,
+          18,
+          0
+        ],
+        [
+          13,
+          0,
+          2,
+          2,
+          5,
+          5,
+          712,
+          0,
+          12
+        ],
+        [
+          30,
+          3,
+          0,
+          12,
+          0,
+          20,
+          0,
+          851,
+          6
+        ],
+        [
+          14,
+          0,
+          4,
+          3,
+          5,
+          1,
+          13,
+          10,
+          296
+        ]
+      ]
+    }
+  },
+  "logged_best": {
+    "epoch": 4,
+    "stage": 1,
+    "lr": 0.0,
+    "time_sec": 16.6,
+    "timestamp": "09-10 20:29:19",
+    "train_loss": 0.011426170131613692,
+    "dev_loss": 0.03842063450859147,
+    "f1": 0.9473155205628613,
+    "macro_f1": 0.9390906420147177,
+    "precision": 0.9429714857428715,
+    "recall": 0.9516997643890945,
+    "token_accuracy": 0.9911413106966239,
+    "all_o_accuracy": 0.8325026284023208,
+    "invalid_rate": 0.0007203769323624469
+  },
+  "bert_config": {
+    "transformers_version": "5.17.0",
+    "architectures": [
+      "BertForMaskedLM"
+    ],
+    "output_hidden_states": false,
+    "return_dict": true,
+    "dtype": "float32",
+    "chunk_size_feed_forward": 0,
+    "is_encoder_decoder": false,
+    "id2label": {
+      "0": "LABEL_0",
+      "1": "LABEL_1"
+    },
+    "label2id": {
+      "LABEL_0": 0,
+      "LABEL_1": 1
+    },
+    "problem_type": null,
+    "vocab_size": 28996,
+    "hidden_size": 768,
+    "num_hidden_layers": 12,
+    "num_attention_heads": 12,
+    "intermediate_size": 3072,
+    "hidden_act": "gelu",
+    "hidden_dropout_prob": 0.1,
+    "attention_probs_dropout_prob": 0.1,
+    "max_position_embeddings": 512,
+    "type_vocab_size": 2,
+    "initializer_range": 0.02,
+    "layer_norm_eps": 1e-12,
+    "pad_token_id": 0,
+    "use_cache": true,
+    "classifier_dropout": null,
+    "is_decoder": false,
+    "add_cross_attention": false,
+    "bos_token_id": null,
+    "eos_token_id": null,
+    "tie_word_embeddings": true,
+    "_name_or_path": "google-bert/bert-base-cased",
+    "gradient_checkpointing": false,
+    "model_type": "bert",
+    "position_embedding_type": "absolute",
+    "output_attentions": false
+  },
+  "tokenizer_class": "BertTokenizer",
+  "tokenizer_vocab_sha256": "75b241c569f5250f63023a57604255bc5aef75f70e8d4297cbe26f20ceebf806",
+  "source_sha256": {
+    "C:\\code\\beatDL\\text\\2_sequence_labeling\\CoNLL-2003\\outputs_bert_lr2e-5\\best.pt": "5489211200c653ba5cc5b1e3eec47df22aa16a8e882b7f269193f63123ae92ab",
+    "C:\\code\\beatDL\\text\\2_sequence_labeling\\CoNLL-2003\\outputs_bert_lr2e-5\\training_log.json": "7f9a63a0accd9aafedcb9a3684d7296495d765eac3a8ebbb91c257b31f670773",
+    "C:\\code\\beatDL\\text\\2_sequence_labeling\\CoNLL-2003\\dataset\\data\\conll2003\\valid.txt": "426445b024120cfbd770fb4c0dafb6710f35afc08056b82837aa166a8cd6aef7",
+    "C:\\code\\beatDL\\text\\2_sequence_labeling\\CoNLL-2003\\dataset\\data\\conll2003\\test.txt": "ae78c673d851c4308090fed5fb4412474c8b1fc91fe20728fdf62fdbfa1a5b2c",
+    "C:\\code\\beatDL\\text\\2_sequence_labeling\\CoNLL-2003\\config.py": "09931cf61af719305a10c19083203e711f41ca98e0af0f7545684bd6566a2aa0",
+    "C:\\code\\beatDL\\text\\2_sequence_labeling\\CoNLL-2003\\dataset\\__init__.py": "2017a0284916a4663784369f377742ba067f79cb9b3e2fc98022ee908f11f079",
+    "C:\\code\\beatDL\\text\\2_sequence_labeling\\CoNLL-2003\\dataset\\conll2003.py": "028f28319d54885d3bc6b78eb26deabab40fa26042dbf21d8a5f3d600541bee9",
+    "C:\\code\\beatDL\\text\\2_sequence_labeling\\CoNLL-2003\\dataset\\glove.py": "e71e03af6637f9075db46a3431d2c6707225a56a3d169f3814b09e78ea951aec",
+    "C:\\code\\beatDL\\text\\2_sequence_labeling\\CoNLL-2003\\dataset\\vocab.py": "e4fc7ec3c92b4cdbb0489205398f285c9cb0a6de62d86cc5aeb5af57dd750534",
+    "C:\\code\\beatDL\\text\\2_sequence_labeling\\CoNLL-2003\\eval.py": "e7ef8048dafeadb33dce6c25c1d30c2abc9af5e707ae4ae69426428f00242cdd",
+    "C:\\code\\beatDL\\text\\2_sequence_labeling\\CoNLL-2003\\eval_bert.py": "f4fb244fac45aa86f47044b53c74afa196678bdde47345074f8d499f3b2e0a36",
+    "C:\\code\\beatDL\\text\\2_sequence_labeling\\CoNLL-2003\\model\\__init__.py": "dd4a41bc181ef4f1b24a3ce43a9c9c61439f29d215e106f1bcd94739e26390d8",
+    "C:\\code\\beatDL\\text\\2_sequence_labeling\\CoNLL-2003\\model\\embedding.py": "2cea5f944a0b78791d958fb25eac1459b3a21b6560245c763cdc5739895cb0e3",
+    "C:\\code\\beatDL\\text\\2_sequence_labeling\\CoNLL-2003\\model\\encoder.py": "0ab4665f67daec6ba3f4e05efcddab79c3125ffe20fa48836ceef75bded8f6c2",
+    "C:\\code\\beatDL\\text\\2_sequence_labeling\\CoNLL-2003\\model\\head.py": "96aae835ca81668ac279cbf2a8bb29c71d55776b8f5c3cbf65a2cf981be1ee66",
+    "C:\\code\\beatDL\\text\\2_sequence_labeling\\CoNLL-2003\\model\\lstm_tagger.py": "244425337b699797f17d7038adb0218fb87dadd96969e962387f0d7efd48d33b",
+    "C:\\code\\beatDL\\text\\2_sequence_labeling\\CoNLL-2003\\model_bert\\__init__.py": "756886e891ce985fb2a9a3546bbbe729bf64141daa9de6cee74cbd5997803066",
+    "C:\\code\\beatDL\\text\\2_sequence_labeling\\CoNLL-2003\\model_bert\\bert_tagger.py": "f25c3cc14f8a9ddd1835080bf6d827b312d7568047287b86159a684ae642d34b",
+    "C:\\code\\beatDL\\text\\2_sequence_labeling\\CoNLL-2003\\model_bert\\wordpiece.py": "44afbfe73a8d479bd981e13d355fb44f53885ad85d5142455fa36972463d1158",
+    "C:\\code\\beatDL\\text\\2_sequence_labeling\\CoNLL-2003\\model_transformer\\__init__.py": "09027bf30bfe78445302a62c0a381e87b633fba30efc3dcad961742819221cd8",
+    "C:\\code\\beatDL\\text\\2_sequence_labeling\\CoNLL-2003\\model_transformer\\encoder.py": "ea3b2dff5fd74ccfbcdfbcab57ba808ac1d9478eace7cb20f9b57adf7ce59147",
+    "C:\\code\\beatDL\\text\\2_sequence_labeling\\CoNLL-2003\\model_transformer\\transformer_tagger.py": "059a1861ccf38b7663b4e79eac0d399a7b8ff01786128ea3df7277e6e91171d0",
+    "C:\\code\\beatDL\\text\\2_sequence_labeling\\CoNLL-2003\\predict\\predict.py": "740fc8a035d8395fb2001301271ff6fdfa0f6b259dfd231b3bfcd91311e0d76b",
+    "C:\\code\\beatDL\\text\\2_sequence_labeling\\CoNLL-2003\\report_experiments.py": "a8ee9053c1597c2f999e5ca8b83cb7bff16b3c622c5df7fdc433955eb224b1e0",
+    "C:\\code\\beatDL\\text\\2_sequence_labeling\\CoNLL-2003\\test_eval_bert.py": "90ffcbfa55a658d7bd20ca4570b4e5c255169b115c07052d8d3f11e50692afc3",
+    "C:\\code\\beatDL\\text\\2_sequence_labeling\\CoNLL-2003\\train.py": "3467195d9fba4f3ae767158472c733a5dde46a4a3880fcdf25a60fcfe6ef172c",
+    "C:\\code\\beatDL\\text\\2_sequence_labeling\\CoNLL-2003\\train_bert.py": "e1f222b968a1be5d84770685dcbd64afca2b06eac04f56a1855e739873a8c029",
+    "C:\\code\\beatDL\\text\\2_sequence_labeling\\CoNLL-2003\\utils\\__init__.py": "a503f9561bda32ede95844f57f0b327c5fa5b532075fab6cd2979870c831101e",
+    "C:\\code\\beatDL\\text\\2_sequence_labeling\\CoNLL-2003\\utils\\download.py": "5cc35a0546fe84dc5b52881f8f8c5f66daa444c7ed8a8cbe7fb5b84c3012c772",
+    "C:\\code\\beatDL\\text\\2_sequence_labeling\\CoNLL-2003\\utils\\metrics.py": "555b6d76150838dfd286ed001f1a09088d7eb1a490583e84f1e7c69750f47c90",
+    "C:\\code\\beatDL\\text\\2_sequence_labeling\\CoNLL-2003\\utils\\viz.py": "679dedc1e7eca9bcfa3b7d555ed4675624c3a51880e384c4e57b6fe23e4d18fe"
+  },
+  "evaluations": {
+    "valid": {
+      "f1": 0.9473155205628613,
+      "precision": 0.9429714857428715,
+      "recall": 0.9516997643890945,
+      "macro_f1": 0.9390906420147177,
+      "per_type": {
+        "PER": {
+          "precision": 0.9693548387096774,
+          "recall": 0.9788273615635179,
+          "f1": 0.9740680713128038,
+          "support": 1842,
+          "predicted": 1860
+        },
+        "LOC": {
+          "precision": 0.9697469746974697,
+          "recall": 0.95971692977681,
+          "f1": 0.9647058823529412,
+          "support": 1837,
+          "predicted": 1818
+        },
+        "ORG": {
+          "precision": 0.9122552574329225,
+          "recall": 0.9381058911260254,
+          "f1": 0.9250000000000002,
+          "support": 1341,
+          "predicted": 1379
+        },
+        "MISC": {
+          "precision": 0.8840425531914894,
+          "recall": 0.9013015184381779,
+          "f1": 0.8925886143931255,
+          "support": 922,
+          "predicted": 940
+        }
+      },
+      "token_accuracy": 0.9911413106966239,
+      "all_o_accuracy": 0.8325026284023208,
+      "n_gold": 5942,
+      "n_pred": 5997,
+      "n_sentences": 3250,
+      "invalid_transitions": 37,
+      "invalid_rate": 0.0007203769323624469,
+      "matrix": [
+        [
+          42661,
+          11,
+          2,
+          6,
+          1,
+          22,
+          10,
+          28,
+          18
+        ],
+        [
+          5,
+          1810,
+          1,
+          7,
+          0,
+          15,
+          1,
+          3,
+          0
+        ],
+        [
+          4,
+          4,
+          1293,
+          0,
+          1,
+          1,
+          3,
+          0,
+          1
+        ],
+        [
+          7,
+          9,
+          1,
+          1767,
+          2,
+          29,
+          5,
+          17,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          1,
+          243,
+          0,
+          9,
+          0,
+          4
+        ],
+        [
+          12,
+          19,
+          0,
+          12,
+          0,
+          1274,
+          6,
+          18,
+          0
+        ],
+        [
+          13,
+          0,
+          2,
+          2,
+          5,
+          5,
+          712,
+          0,
+          12
+        ],
+        [
+          30,
+          3,
+          0,
+          12,
+          0,
+          20,
+          0,
+          851,
+          6
+        ],
+        [
+          14,
+          0,
+          4,
+          3,
+          5,
+          1,
+          13,
+          10,
+          296
+        ]
+      ],
+      "n_tokens": 51362,
+      "n_pieces": 67948,
+      "max_pieces": 151,
+      "unk_word_rate": 0.0
+    },
+    "test": {
+      "f1": 0.9093459582675785,
+      "precision": 0.9006599513720042,
+      "recall": 0.9182011331444759,
+      "macro_f1": 0.8927185313967031,
+      "per_type": {
+        "PER": {
+          "precision": 0.9646621202727836,
+          "recall": 0.9622758194186766,
+          "f1": 0.9634674922600619,
+          "support": 1617,
+          "predicted": 1613
+        },
+        "LOC": {
+          "precision": 0.9324487334137516,
+          "recall": 0.9268585131894485,
+          "f1": 0.9296452194828624,
+          "support": 1668,
+          "predicted": 1658
+        },
+        "ORG": {
+          "precision": 0.8713956170703575,
+          "recall": 0.909692956050572,
+          "f1": 0.8901325478645067,
+          "support": 1661,
+          "predicted": 1734
+        },
+        "MISC": {
+          "precision": 0.7609561752988048,
+          "recall": 0.8162393162393162,
+          "f1": 0.7876288659793815,
+          "support": 702,
+          "predicted": 753
+        }
+      },
+      "token_accuracy": 0.9820178744481534,
+      "all_o_accuracy": 0.8253041886508022,
+      "n_gold": 5648,
+      "n_pred": 5758,
+      "n_sentences": 3453,
+      "invalid_transitions": 48,
+      "invalid_rate": 0.0010337030257348983,
+      "matrix": [
+        [
+          38046,
+          20,
+          3,
+          13,
+          6,
+          58,
+          45,
+          62,
+          70
+        ],
+        [
+          10,
+          1559,
+          6,
+          13,
+          0,
+          27,
+          0,
+          2,
+          0
+        ],
+        [
+          0,
+          1,
+          1147,
+          0,
+          1,
+          0,
+          6,
+          0,
+          1
+        ],
+        [
+          12,
+          8,
+          0,
+          1554,
+          1,
+          55,
+          9,
+          27,
+          2
+        ],
+        [
+          4,
+          2,
+          2,
+          0,
+          235,
+          0,
+          12,
+          0,
+          2
+        ],
+        [
+          20,
+          13,
+          0,
+          53,
+          0,
+          1530,
+          7,
+          38,
+          0
+        ],
+        [
+          19,
+          0,
+          4,
+          2,
+          19,
+          3,
+          775,
+          0,
+          13
+        ],
+        [
+          33,
+          8,
+          0,
+          19,
+          0,
+          44,
+          1,
+          590,
+          7
+        ],
+        [
+          17,
+          0,
+          2,
+          1,
+          6,
+          1,
+          18,
+          7,
+          164
+        ]
+      ],
+      "n_tokens": 46435,
+      "n_pieces": 63461,
+      "max_pieces": 148,
+      "unk_word_rate": 0.0
+    }
+  }
+}

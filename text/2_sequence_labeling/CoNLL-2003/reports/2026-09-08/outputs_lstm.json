@@ -1,0 +1,716 @@
+{
+  "run": "outputs_lstm",
+  "source_sha256": {
+    "best.pt": "143d6893ce45c8835a087098d32b698351d3b74a7a45dd23eb0a30344c7b2b3f",
+    "vocab.json": "7b2a1ab88813cec9d6c929e96b715e5092f059cdbb71afb8c6e194f7dec7401a",
+    "training_log.json": "6a13465faf555589e1b9e7f82d61d97164f769d176bbc6cb1bd7c2da60b33277"
+  },
+  "meta": {
+    "model": "BiLSTM",
+    "device": "cuda",
+    "seed": 42,
+    "data": {
+      "data_root": "C:\\code\\beatDL\\text\\2_sequence_labeling\\CoNLL-2003\\dataset\\data",
+      "train_sentences": 14041,
+      "train_tokens": 203621,
+      "train_batches": 439,
+      "dev_sentences": 3250,
+      "batch_size": 32,
+      "eval_batch_size": 128,
+      "num_workers": 0,
+      "vocab_size": 21011,
+      "min_freq": 1,
+      "max_len": 128,
+      "tags": [
+        "O",
+        "B-PER",
+        "I-PER",
+        "B-LOC",
+        "I-LOC",
+        "B-ORG",
+        "I-ORG",
+        "B-MISC",
+        "I-MISC"
+      ],
+      "train_entities": {
+        "PER": 6600,
+        "LOC": 7140,
+        "ORG": 6321,
+        "MISC": 3438
+      },
+      "dev_entities": {
+        "PER": 1842,
+        "LOC": 1837,
+        "ORG": 1341,
+        "MISC": 922
+      },
+      "dev_unk_rate": 0.0754,
+      "train_o_rate": 0.8328
+    },
+    "model_cfg": {
+      "model_type": "lstm",
+      "num_tags": 9,
+      "embed_dim": 100,
+      "num_layers": 2,
+      "dropout": 0.5,
+      "pad_idx": 0,
+      "use_case": true,
+      "case_dim": 16,
+      "hidden_size": 256,
+      "bidirectional": true,
+      "glove": true,
+      "glove_path": "C:\\code\\beatDL\\text\\1_text_classification\\SST-2\\dataset\\data\\glove\\glove.6B.100d.txt",
+      "glove_coverage": 0.8765
+    },
+    "optim": {
+      "optimizer": "Adam",
+      "weight_decay": 0.0001,
+      "grad_clip": 5.0,
+      "label_smoothing": 0.0,
+      "ignore_index": -100,
+      "epochs_stage1": 10,
+      "epochs_stage2": 10,
+      "stage1_lr_head": 0.001,
+      "stage1_lr_encoder": 0.001,
+      "stage2_lr_head": 0.0003,
+      "stage2_lr_encoder": 0.0003,
+      "stage2_lr_embedding": 5e-05
+    },
+    "started": "2026-09-07 23:06:37",
+    "finished": "2026-09-07 23:09:39",
+    "best_dev": {
+      "f1": 0.8772,
+      "epoch": 18
+    },
+    "final_dev": {
+      "f1": 0.8772,
+      "precision": 0.8665,
+      "recall": 0.8881,
+      "macro_f1": 0.8631,
+      "token_accuracy": 0.9794,
+      "all_o_accuracy": 0.8325,
+      "n_gold": 5942,
+      "n_pred": 6090,
+      "invalid_transitions": 98,
+      "invalid_rate": 0.001908,
+      "per_type": {
+        "PER": {
+          "precision": 0.8337,
+          "recall": 0.9745,
+          "f1": 0.8986,
+          "support": 1842,
+          "predicted": 2153
+        },
+        "LOC": {
+          "precision": 0.949,
+          "recall": 0.9113,
+          "f1": 0.9297,
+          "support": 1837,
+          "predicted": 1764
+        },
+        "ORG": {
+          "precision": 0.8308,
+          "recall": 0.824,
+          "f1": 0.8274,
+          "support": 1341,
+          "predicted": 1330
+        },
+        "MISC": {
+          "precision": 0.8339,
+          "recall": 0.7625,
+          "f1": 0.7966,
+          "support": 922,
+          "predicted": 843
+        }
+      },
+      "matrix": [
+        [
+          42571,
+          67,
+          6,
+          5,
+          0,
+          38,
+          18,
+          17,
+          37
+        ],
+        [
+          6,
+          1809,
+          5,
+          13,
+          0,
+          4,
+          1,
+          3,
+          1
+        ],
+        [
+          15,
+          13,
+          1274,
+          0,
+          0,
+          0,
+          4,
+          0,
+          1
+        ],
+        [
+          7,
+          72,
+          1,
+          1680,
+          5,
+          48,
+          3,
+          20,
+          1
+        ],
+        [
+          6,
+          0,
+          7,
+          4,
+          206,
+          1,
+          25,
+          0,
+          8
+        ],
+        [
+          25,
+          110,
+          4,
+          24,
+          0,
+          1136,
+          20,
+          22,
+          0
+        ],
+        [
+          46,
+          4,
+          27,
+          4,
+          11,
+          10,
+          630,
+          1,
+          18
+        ],
+        [
+          31,
+          69,
+          0,
+          15,
+          0,
+          51,
+          6,
+          739,
+          11
+        ],
+        [
+          39,
+          3,
+          7,
+          2,
+          5,
+          0,
+          25,
+          8,
+          257
+        ]
+      ]
+    }
+  },
+  "logged_best": {
+    "epoch": 18,
+    "stage": 2,
+    "lr_head": 6.183221215612905e-05,
+    "lr_encoder": 6.183221215612905e-05,
+    "lr_embedding": 1.0305368692688173e-05,
+    "time_sec": 9.0,
+    "timestamp": "09-07 23:09:21",
+    "train_loss": 0.06772086854827737,
+    "dev_loss": 0.06660684897769938,
+    "f1": 0.8771609042553191,
+    "macro_f1": 0.8630927625486672,
+    "precision": 0.8665024630541872,
+    "recall": 0.8880848199259509,
+    "token_accuracy": 0.9793621743701569,
+    "all_o_accuracy": 0.8325026284023208,
+    "invalid_rate": 0.001908025388419454
+  },
+  "epochs": 20,
+  "stage1_best_f1": 0.8695291777188329,
+  "mean_epoch_seconds": 9.025,
+  "parameters": 4448741,
+  "non_embedding_parameters": 2347529,
+  "evaluations": {
+    "valid": {
+      "f1": 0.8771609042553191,
+      "precision": 0.8665024630541872,
+      "recall": 0.8880848199259509,
+      "macro_f1": 0.8630927625486672,
+      "per_type": {
+        "PER": {
+          "precision": 0.8337203901532745,
+          "recall": 0.9744842562432139,
+          "f1": 0.8986232790988736,
+          "support": 1842,
+          "predicted": 2153
+        },
+        "LOC": {
+          "precision": 0.9489795918367347,
+          "recall": 0.9112683723462166,
+          "f1": 0.9297417384059983,
+          "support": 1837,
+          "predicted": 1764
+        },
+        "ORG": {
+          "precision": 0.8308270676691729,
+          "recall": 0.8240119313944817,
+          "f1": 0.8274054661175588,
+          "support": 1341,
+          "predicted": 1330
+        },
+        "MISC": {
+          "precision": 0.833926453143535,
+          "recall": 0.762472885032538,
+          "f1": 0.796600566572238,
+          "support": 922,
+          "predicted": 843
+        }
+      },
+      "token_accuracy": 0.9793621743701569,
+      "all_o_accuracy": 0.8325026284023208,
+      "n_gold": 5942,
+      "n_pred": 6090,
+      "n_sentences": 3250,
+      "invalid_transitions": 98,
+      "invalid_rate": 0.001908025388419454,
+      "matrix": [
+        [
+          42571,
+          67,
+          6,
+          5,
+          0,
+          38,
+          18,
+          17,
+          37
+        ],
+        [
+          6,
+          1809,
+          5,
+          13,
+          0,
+          4,
+          1,
+          3,
+          1
+        ],
+        [
+          15,
+          13,
+          1274,
+          0,
+          0,
+          0,
+          4,
+          0,
+          1
+        ],
+        [
+          7,
+          72,
+          1,
+          1680,
+          5,
+          48,
+          3,
+          20,
+          1
+        ],
+        [
+          6,
+          0,
+          7,
+          4,
+          206,
+          1,
+          25,
+          0,
+          8
+        ],
+        [
+          25,
+          110,
+          4,
+          24,
+          0,
+          1136,
+          20,
+          22,
+          0
+        ],
+        [
+          46,
+          4,
+          27,
+          4,
+          11,
+          10,
+          630,
+          1,
+          18
+        ],
+        [
+          31,
+          69,
+          0,
+          15,
+          0,
+          51,
+          6,
+          739,
+          11
+        ],
+        [
+          39,
+          3,
+          7,
+          2,
+          5,
+          0,
+          25,
+          8,
+          257
+        ]
+      ],
+      "loss_eval_mode": 0.06660684863938279,
+      "n_tokens": 51362,
+      "max_sentence_length": 109,
+      "unk_rate": 0.07542541178303025,
+      "gold_entity_errors": {
+        "matched": 5277,
+        "wrong_type_same_boundary": 369,
+        "boundary_overlap": 253,
+        "missed_no_overlap": 43
+      },
+      "gold_entity_vocab_recall": {
+        "all_tokens_in_vocab": {
+          "gold": 4660,
+          "correct": 4332,
+          "recall": 0.9296137339055794
+        },
+        "contains_unk": {
+          "gold": 1282,
+          "correct": 945,
+          "recall": 0.7371294851794071
+        }
+      }
+    },
+    "train": {
+      "f1": 0.9309197278334782,
+      "precision": 0.9274009629191655,
+      "recall": 0.9344652963955913,
+      "macro_f1": 0.9221211477461377,
+      "per_type": {
+        "PER": {
+          "precision": 0.956774482039052,
+          "recall": 0.9725757575757575,
+          "f1": 0.96461041400556,
+          "support": 6600,
+          "predicted": 6709
+        },
+        "LOC": {
+          "precision": 0.9591664319909885,
+          "recall": 0.95406162464986,
+          "f1": 0.9566072180873473,
+          "support": 7140,
+          "predicted": 7102
+        },
+        "ORG": {
+          "precision": 0.8828787878787879,
+          "recall": 0.9218478088909983,
+          "f1": 0.9019425741041716,
+          "support": 6321,
+          "predicted": 6600
+        },
+        "MISC": {
+          "precision": 0.8879706152433425,
+          "recall": 0.8438045375218151,
+          "f1": 0.865324384787472,
+          "support": 3438,
+          "predicted": 3267
+        }
+      },
+      "token_accuracy": 0.9883214403229529,
+      "all_o_accuracy": 0.832811939829389,
+      "n_gold": 23499,
+      "n_pred": 23678,
+      "n_sentences": 14041,
+      "invalid_transitions": 248,
+      "invalid_rate": 0.0012179490327618467,
+      "matrix": [
+        [
+          169099,
+          81,
+          13,
+          33,
+          17,
+          133,
+          91,
+          79,
+          32
+        ],
+        [
+          38,
+          6437,
+          35,
+          17,
+          1,
+          55,
+          2,
+          13,
+          2
+        ],
+        [
+          8,
+          16,
+          4478,
+          0,
+          7,
+          1,
+          11,
+          0,
+          7
+        ],
+        [
+          41,
+          33,
+          2,
+          6846,
+          13,
+          156,
+          12,
+          37,
+          0
+        ],
+        [
+          28,
+          0,
+          9,
+          11,
+          1038,
+          0,
+          62,
+          0,
+          9
+        ],
+        [
+          102,
+          68,
+          1,
+          86,
+          0,
+          5936,
+          67,
+          54,
+          7
+        ],
+        [
+          123,
+          1,
+          14,
+          9,
+          34,
+          39,
+          3466,
+          1,
+          17
+        ],
+        [
+          97,
+          50,
+          2,
+          61,
+          2,
+          169,
+          15,
+          2991,
+          51
+        ],
+        [
+          89,
+          0,
+          5,
+          1,
+          15,
+          3,
+          77,
+          13,
+          952
+        ]
+      ],
+      "loss_eval_mode": 0.0390646994889932,
+      "n_tokens": 203621,
+      "max_sentence_length": 113,
+      "unk_rate": 0.0
+    },
+    "test": {
+      "f1": 0.8315579804278168,
+      "precision": 0.8138667570774708,
+      "recall": 0.8500354107648725,
+      "macro_f1": 0.814646955551821,
+      "per_type": {
+        "PER": {
+          "precision": 0.7722722722722722,
+          "recall": 0.9542362399505256,
+          "f1": 0.8536652835408022,
+          "support": 1617,
+          "predicted": 1998
+        },
+        "LOC": {
+          "precision": 0.9175788795878944,
+          "recall": 0.85431654676259,
+          "f1": 0.8848183793852841,
+          "support": 1668,
+          "predicted": 1553
+        },
+        "ORG": {
+          "precision": 0.8103658536585366,
+          "recall": 0.8001204093919325,
+          "f1": 0.8052105422599212,
+          "support": 1661,
+          "predicted": 1640
+        },
+        "MISC": {
+          "precision": 0.711864406779661,
+          "recall": 0.717948717948718,
+          "f1": 0.7148936170212766,
+          "support": 702,
+          "predicted": 708
+        }
+      },
+      "token_accuracy": 0.9688596963497362,
+      "all_o_accuracy": 0.8253041886508022,
+      "n_gold": 5648,
+      "n_pred": 5899,
+      "n_sentences": 3453,
+      "invalid_transitions": 114,
+      "invalid_rate": 0.002455044686120383,
+      "matrix": [
+        [
+          37901,
+          107,
+          21,
+          13,
+          10,
+          73,
+          48,
+          67,
+          83
+        ],
+        [
+          16,
+          1553,
+          12,
+          14,
+          0,
+          14,
+          5,
+          3,
+          0
+        ],
+        [
+          0,
+          1,
+          1143,
+          0,
+          4,
+          0,
+          7,
+          0,
+          1
+        ],
+        [
+          7,
+          101,
+          4,
+          1437,
+          2,
+          74,
+          7,
+          35,
+          1
+        ],
+        [
+          4,
+          0,
+          18,
+          1,
+          198,
+          0,
+          31,
+          0,
+          5
+        ],
+        [
+          42,
+          136,
+          2,
+          50,
+          0,
+          1378,
+          17,
+          36,
+          0
+        ],
+        [
+          42,
+          8,
+          35,
+          2,
+          24,
+          7,
+          701,
+          0,
+          16
+        ],
+        [
+          22,
+          72,
+          1,
+          14,
+          0,
+          47,
+          3,
+          534,
+          9
+        ],
+        [
+          31,
+          2,
+          10,
+          0,
+          2,
+          1,
+          21,
+          5,
+          144
+        ]
+      ],
+      "loss_eval_mode": 0.10523007358893186,
+      "n_tokens": 46435,
+      "max_sentence_length": 124,
+      "unk_rate": 0.10873263701948961
+    }
+  }
+}

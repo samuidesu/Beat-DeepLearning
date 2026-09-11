@@ -2,7 +2,7 @@
 
 A personal PyTorch playground with one goal: **re-implement and solve as many deep-learning problems as possible from scratch** — one task, one dataset, one (or several) models at a time. Every folder is a self-contained experiment with training scripts, tuning notes, and results.
 
-So far the repo covers the **CNN** family: image classification and object detection.
+The repo includes **CNN** vision experiments and **NLP** experiments with recurrent models, Transformers, and pretrained BERT.
 
 ---
 
@@ -40,6 +40,17 @@ See [`cnn/[2]ObjectionDetection/YOLO3/PASCAL_VOC/README.md`](cnn/%5B2%5DObjectio
 
 ---
 
+## 3. NLP — Text Classification and Sequence Labeling
+
+Experiments with recurrent models, Transformers, pretrained word vectors, and BERT fine-tuning.
+
+- **Text classification:** sentiment analysis on [SST-2](text/1_text_classification/SST-2/README.md) and [IMDB](text/1_text_classification/IMDB/README.md), and news categorization on [AG-News](text/1_text_classification/AG-News/README.md).
+- **Sequence labeling:** named entity recognition on [CoNLL-2003](text/2_sequence_labeling/CoNLL-2003/README.md), using BiLSTM, Transformer, and BERT models.
+
+Each experiment's README contains its setup, running instructions, and results.
+
+---
+
 ## Repository Layout
 
 ```
@@ -61,6 +72,8 @@ Beat-DeepLearing/
 pip install torch torchvision numpy matplotlib tqdm pillow torchmetrics pycocotools
 ```
 
+See each experiment's README for additional dependencies and environment setup.
+
 ## Roadmap
 
-CNN (classification + detection) is in place. Next: extend the same "implement it from scratch, record what worked" approach to more tasks and model families (segmentation, sequence models, etc.).
+Continue the "implement, compare, and record what worked" approach across vision and NLP, expanding to more tasks and model families.
