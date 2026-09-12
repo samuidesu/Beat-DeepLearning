@@ -49,6 +49,14 @@ The recurrent cell is selectable (config.CELL or train.py --cell):
 plus train.py --model transformer for the hand-written encoder. Each writes to
 its OWN output folder, so the experiments never overwrite each other.
 
+A pretrained model sits outside both switches: BERT, finetuned by
+train_bert.py (model_bert/ -> outputs_bert/). It is not a --model value
+because almost nothing around its encoder carries over -- no vocabulary, no
+GloVe, a 512-piece window instead of MAX_LEN, a different optimizer and
+schedule -- while the parts that make the numbers comparable (the split, the
+truncation arithmetic, the loss, the val metric) are imported from this
+pipeline rather than copied.
+
 Every number quoted in the comments below was measured on this machine's copy
 of the corpus, not estimated. The README records how.
 """
@@ -335,3 +343,65 @@ STAGE2_EPOCHS = 3
 STAGE2_LR_HEAD = 3e-4
 STAGE2_LR_ENCODER = 3e-4
 STAGE2_LR_EMBEDDING = 5e-5      # pretrained words: gentle updates only
+
+# -----------------------------------------------------------------------------
+# BERT finetuning (train_bert.py, model_bert/)
+# -----------------------------------------------------------------------------
+OUTPUT_DIR_BERT = os.path.join(PROJECT_ROOT, "outputs_bert")
+
+# Hub id or local directory; the tokenizer is always loaded from the same name.
+# UNCASED, because casing is not the variable under study: the GloVe models
+# lowercase every token (GloVe 6B is uncased), so a cased BERT would change two
+# things at once. Contrast the CoNLL-2003 project, where casing IS the task.
+BERT_NAME = "google-bert/bert-base-uncased"
+
+# The window, in WordPiece positions with [CLS] and [SEP] included. 512 is the
+# checkpoint's hard limit (its position table has 512 rows), not a trade-off
+# like MAX_LEN above, so a review gets at most 510 pieces. Longer ones are cut
+# by the SAME truncate() the GloVe models use, in the TRUNCATION mode above.
+BERT_MAX_LEN = 512
+
+# Pieces kept from the front under head_tail: 128, plus 382 from the back --
+# the split Sun et al. found best on this corpus. HEAD_LEN's note above calls
+# that ratio a hypothesis for a BiLSTM at 400; here it is the setting it was
+# measured with, BERT at 512.
+BERT_HEAD_LEN = 128
+
+# Dropout before the classifier, equal to BERT's own hidden_dropout_prob.
+# Dropout inside the 12 layers stays at the checkpoint's setting (also 0.1).
+BERT_DROPOUT = 0.1
+
+# ClassifierHead pooling. "last" is the encoder's own document vector, which
+# for BERT is the POOLED [CLS] -- the standard BERT classification input.
+# "mean" / "max" pool the token outputs with the head's existing masks.
+BERT_POOLING = "last"
+
+# Optimization, from Devlin et al.'s finetuning grid (batch 16/32, lr
+# 5e-5/3e-5/2e-5, epochs 2/3/4):
+#   lr 2e-5    the bottom of the grid. Sun et al. found a rate this low
+#              necessary for BERT to avoid catastrophic forgetting on IMDB; an
+#              aggressive 4e-4 did not converge.
+#   batch 32   the larger of the grid's two sizes, and deliberately not
+#              BATCH_SIZE's 64: that was picked to give small from-scratch
+#              models more updates, while a 512-position row through 12 layers
+#              is a different memory budget. 22,500 / 32 = 704 updates per epoch.
+#   4 epochs   the top of the grid; best.pt is selected on val anyway.
+#
+# One learning rate for every parameter and no frozen stage, unlike the
+# two-stage protocol above. That protocol exists because the GloVe models put
+# a large RANDOM encoder on pretrained vectors; here only the 1,538-parameter
+# classifier is random. What protects the pretrained weights instead is
+# WARMUP: the rate ramps up from 0 over the first 10% of updates, so the
+# earliest steps -- taken while the classifier is still random and Adam's
+# moment estimates are still noise -- are small ones.
+BERT_BATCH_SIZE = 32
+BERT_EPOCHS = 4
+BERT_LR = 2e-5
+BERT_WARMUP_RATIO = 0.1
+
+# AdamW's decoupled decay, on weight matrices only: biases and LayerNorm
+# parameters are exempt, as in the original BERT optimizer.
+BERT_WEIGHT_DECAY = 0.01
+
+# The original BERT value, rather than the GloVe models' GRAD_CLIP = 5.0.
+BERT_GRAD_CLIP = 1.0

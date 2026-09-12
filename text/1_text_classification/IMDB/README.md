@@ -1,19 +1,29 @@
-# IMDB：RNN 与手写 Transformer 情感分类实验
+# IMDB：RNN、手写 Transformer 与 BERT 微调情感分类实验
 
-> **状态：12 次运行已完成，结果与结论见第 7 节。** 最好的单模型是 BiLSTM 跑满
-> 18 个 epoch，test 0.8846。本文所有数字都是在本机语料 / 本机 GPU 上实测的，不是
-> 估计值（第 9 节列出每个数字的来源命令）。
->
-> 三条主要结论：**序列从 128 拉长到 400，vanilla RNN 相对 GRU 的差距从 3.7pp 扩大到
-> 20.4pp**（7.2）；**本项目的训练噪声地板约 0.4pp，小于它的差异一律不是结论**
-> （7.3）；**固定 epoch 预算下比较架构，比的是收敛速度而不是最终质量——GRU/LSTM 的
-> 排序在 9 epoch 和 18 epoch 下符号相反**（7.4）。
+> **更新：2026-09-11。共 13 次完整运行：12 次 GloVe 系列实验 + 1 次 BERT 全量微调，均为 seed=42。**
+> BERT-base-uncased 在第 4 个 epoch 达到 **Val Acc / macro-F1 = 0.9436**，比
+> 18-epoch BiLSTM 的 **同一验证集**准确率高 **6.08pp**。BERT 的 test 尚未评估，
+> 不能把 0.9436 当作 test 成绩；已有 test 报告中最好的仍是 BiLSTM 18ep（0.8846）。
+
+主要基线一览；完整的 13 次运行见第 7 节。`pp` 表示百分点，最佳 checkpoint 均按 val 选择。
+
+| 模型 / 训练记录 | 训练 epoch | 最佳 epoch | Val Acc | Test Acc |
+|---|---:|---:|---:|---:|
+| [BiGRU 18ep](outputs_gru_long/training_log.json) | 18 | 14 | 0.8820 | 0.8772 |
+| [BiLSTM 18ep](outputs_lstm_long/training_log.json) | 18 | 17 | 0.8828 | 0.8846 |
+| [手写 Transformer d128 L2 post 18ep](outputs_transformer_long/training_log.json) | 18 | 16 | 0.8716 | 0.8586 |
+| [BERT-base-uncased](outputs_bert/training_log.json) | 4 | 4 | **0.9436** | 未评估 |
+
+BERT 改变了预训练资源、参数量、分词和训练方案，不是单独替换编码器的公平架构消融。
+结构见 3.5，微调配置见 4.2，运行方式见 5.5，新实验结论见 7.12。
 
 ## 1. 这个项目在整个文本系列里的位置
 
-这是 `text/1_text_classification/` 下的第三个项目，结构完全沿用 SST-2 和 AG-News：
+这是 `text/1_text_classification/` 下的第三个项目。原 GloVe 系列沿用 SST-2 和 AG-News：
 同样的 embedding / encoder / head 三段划分、同样的两阶段分层学习率、同样的
-per-epoch JSON 日志与曲线、同样那份手写 Transformer。**唯一被推动的变量是数据。**
+per-epoch JSON 日志与曲线、同样那份手写 Transformer，用来研究数据变化对模型的影响。
+新增 BERT 分支复用相同的影评清洗、train/val 划分、分类头接口和指标，但改用
+预训练 WordPiece 词表、BERT 编码器和单阶段全量微调，不再沿用 GloVe 两阶段协议。
 
 | 项目 | 类别数 | 训练文档 | 中位长度 | 主要考验 |
 |---|---:|---:|---:|---|
@@ -37,6 +47,9 @@ SST-2 上三种 cell 差距不到 2 个点，AG News 上拉开了但没有崩，
 ---
 
 ## 2. 数据分析
+
+本节的正则分词长度、400-token 窗口和自建词表统计属于 **GloVe 系列**，不能直接当作
+BERT 的 WordPiece 长度或词表统计。两条路径读的是相同影评；BERT 的处理见 3.5 和 4.2。
 
 ### 2.1 语料本身
 
@@ -197,7 +210,9 @@ GloVe 训练的是**共现**，而反义词天天共现（"到底是好是坏？
 
 ---
 
-## 3. 模型大小设计
+## 3. 模型结构与大小设计
+
+3.1–3.4 保留 GloVe 系列的设计和历史测量；新增 BERT 结构单独列在 3.5。
 
 ### 3.1 实测参数量（vocab = 29,109，embed_dim = 100）
 
@@ -282,9 +297,49 @@ GloVe 训练的是**共现**，而反义词天天共现（"到底是好是坏？
 > vanilla RNN 反而最慢，这不是笔误：cuDNN 对 LSTM/GRU 有融合核，对 `nn.RNN` 的优化差得多。
 > AG News 上是同样的现象。
 
+### 3.5 BERT：预训练编码器 + pooled CLS + 二分类头
+
+[model_bert/bert_classifier.py](model_bert/bert_classifier.py) 使用
+`AutoModel.from_pretrained("google-bert/bert-base-uncased")`，保留 BERT 的 encoder 和
+pooler，不使用 MLM / NSP 预训练分类头。固定词表有 **30,522** 个 WordPiece，
+隐藏维度 **768**，共 **12 层、12 个 attention head（每头 64 维）**，FFN 中间维度 **3072**。
+
+```text
+Cleaned review
+  -> WordPiece: [CLS] + pieces + [SEP]
+  -> ids [B, T] + lengths [B], T <= 512
+  -> Token + learned position + segment embeddings, LayerNorm, dropout
+  -> 12 BERT encoder layers: MHA / residual / Post-LN / FFN with GELU / residual / Post-LN
+  -> last_hidden_state [B, T, 768]
+  -> first position [CLS] [B, 768]
+  -> BERT pooler: Linear(768, 768) + tanh
+  -> head: Dropout(0.1) + Linear(768, 2)
+  -> logits [B, 2]
+```
+
+**这里的 `pooling="last"` 是复用旧分类头的接口名，不是取最后一个 token，也不是 `[SEP]`。**
+实际传给 head 的 `final` 是 `out.pooler_output`，即经过 dense + tanh 的 `[CLS]` 表示。
+可选 `mean/max` 使用最后一层 token 输出、按长度屏蔽 PAD；当前实现会包含 `[CLS]/[SEP]`，
+不是仅对正文池化。这次仅跑了 `last`，没有 BERT pooling 对照实验。
+
+模型共有 **109,483,778 个参数**；新增随机初始化的二分类线性层只有
+`768 × 2 + 2 = 1,538` 个参数。BERT 主干与 pooler 加载预训练权重，随后所有参数共同微调。
+
+输入由 [model_bert/wordpiece.py](model_bert/wordpiece.py) 构造：
+
+- 使用与 checkpoint 配套的 uncased tokenizer，不重新建立 IMDB 词表，也不读取 GloVe。
+- 最多保留 **510 个正文子词 + `[CLS]/[SEP]`**；长影评取前 **128** + 后 **382** 个子词，
+  中间不额外插入分隔符，位置编号按拼接后的序列连续计算。400 个正则 token 与 510 个子词不能直接等同。
+- Dataset 初始化时每 1,000 条影评批量分词，这是预处理分块，不是训练 batch size。
+- 复用 `collate_batch`，在右侧动态补齐到 batch 内最长序列；当前 `config.PAD_IDX` 与
+  BERT 的 `[PAD]` ID 均为 0。attention mask 根据 `lengths` 构建，真实位置（含特殊 token）为 1。
+- 日志记录训练影评截断率 **13.36%**、val `[UNK]` 比例 **0.0000**；没有 UNK 不代表所有词义都已学会。
+
 ---
 
-## 4. 训练协议（与两个兄弟项目一致）
+## 4. 训练协议
+
+### 4.1 GloVe 系列：两阶段训练
 
 **两阶段分层学习率**，把 GloVe 词表当作预训练 backbone：
 
@@ -317,6 +372,27 @@ val 用 10% 而不是 AG News 的 5%：train.csv 只有那边的五分之一，5
 反过来，**test 有 25,000 条**，accuracy 在 0.88 附近的 95% 置信区间只有 **±0.4 个点**，
 所以最终数字之间的差异是值得当真的（前提是超过 0.4 个点）。
 
+### 4.2 BERT：单阶段全量微调（本次实际配置）
+
+以下以 [outputs_bert/training_log.json](outputs_bert/training_log.json) 为准，而不是只读当前默认值。
+
+| 项目 | 本次设置 |
+|---|---|
+| 预训练 checkpoint | `google-bert/bert-base-uncased` |
+| 数据划分 | Train 22,500 / Val 2,500；分层划分，`split_seed=1234`，与旧实验一致 |
+| 输入 | `max_len=512`，含特殊 token；`head_tail`，正文前 128 + 后 382 |
+| Pooling / head dropout | `last`（pooled CLS）/ 0.1；BERT 内部 dropout 沿用 checkpoint 的 0.1 |
+| Batch / epochs / seed | Train 与 Val 均为 32；4 epoch；seed=42；workers=0 |
+| 参数更新 | 从第一步起全量微调，无冻结、无梯度累积；backbone 与 head 共用学习率 |
+| 优化器 | AdamW，峰值 LR=2e-5；矩阵参数 weight decay=0.01，bias / LayerNorm 参数不衰减 |
+| 调度 | 每 epoch 704 次更新，总计 2,816 次；前 281 次 warmup，随后线性衰减到 0 |
+| 损失 / 裁剪 | CrossEntropy，label smoothing=0.05；全局梯度范数裁剪上限 1.0 |
+| 精度 | 训练 BF16 autocast，参数仍为 FP32；验证为 FP32、eval 模式 |
+| 模型选择 | 按 Val Accuracy 保存 `best.pt`；本次最佳为 epoch 4 |
+
+这不是重新预训练 BERT，也不是冻结 BERT 只训练 head。日志里的每轮 `lr` 是
+**epoch 结束时**的学习率，所以第 4 轮记录为 0，不表示整轮都没有参数更新。
+
 ---
 
 ## 5. 怎么运行
@@ -324,7 +400,7 @@ val 用 10% 而不是 AG News 的 5%：train.csv 只有那边的五分之一，5
 数据已经下载并合并好了（`dataset/data/imdb/{train,test}.csv`，各 25,000 行），
 GloVe 复用 `../SST-2/dataset/data/glove/glove.6B.100d.txt`，都不需要再下载。
 
-### 5.1 一条命令跑完全部四个实验
+### 5.1 一条命令跑完四个 GloVe 基线（不包含 BERT）
 
 在 IMDB 项目根目录，激活 torch 环境后：
 
@@ -394,6 +470,25 @@ python model/encoder.py      # packing 与 padding 不变性
 python model/rnn_classifier.py
 python utils/metrics.py      # 混淆矩阵指标的手算校验
 ```
+
+### 5.5 BERT 微调
+
+在 IMDB 项目目录、已安装 PyTorch / `transformers` 的 `dev` 环境中运行。以下是本次
+主要参数的复现命令，**使用新目录，避免覆盖已有 `outputs_bert`**；其余设置应保持 4.2 一致。
+
+```powershell
+python train_bert.py --bert google-bert/bert-base-uncased --epochs 4 --lr 2e-5 `
+    --batch-size 32 --truncation head_tail --head-len 128 --pooling last `
+    --seed 42 --output-dir outputs_bert_repro
+```
+
+tokenizer 和预训练模型优先复用 Hugging Face 缓存；缺失文件时可能下载。IMDB 的
+`bert-base-uncased` 与 NER 的 `bert-base-cased` 是不同 checkpoint，不能混用词表与权重。
+
+输出包括 `best.pt`、`training_log.json`、`acc_curve.png`、`loss_curve.png` 和
+`confusion_matrix.png`。**这里的 confusion matrix 是最佳 checkpoint 的 val 结果，不是 test。**
+当前 `eval.py` / `predict/predict.py` 仍是 GloVe 系列入口，不能直接交给它们 BERT 权重；
+BERT 的独立重载及 test 评估入口尚待补充。本文更新没有重新训练或执行 test。
 
 ---
 
@@ -468,8 +563,10 @@ val_acc 如果不再是 0.5000，假设就验证了。**
 
 ## 7. 结果
 
-12 次运行，全部 seed=42、`MAX_LEN=400`、head+tail 截断（除非另注）、`MIN_FREQ=5`、
-vocab=29,109、GloVe 100d、train batch=64。Test = 25,000 条，val = 2,500 条。
+共 13 次运行，均为 seed=42。前 12 次 GloVe 系列使用 `MAX_LEN=400`、head+tail 截断
+（除非另注）、`MIN_FREQ=5`、vocab=29,109、GloVe 100d、train batch=64。
+BERT 使用 512 个 WordPiece 位置、batch=32，完整配置见 4.2。
+Test = 25,000 条，val = 2,500 条；**BERT 目前只有 val 结果**。
 
 ### 7.1 全部运行
 
@@ -487,8 +584,11 @@ vocab=29,109、GloVe 100d、train batch=64。Test = 25,000 条，val = 2,500 条
 | TRF d256 L4 post 18ep | 6.10M | 18 | 23.2 | **0.5000** | 18 | 0.8636 | **0.8556** | 0.8556 | 0.8613 | 0.8273 |
 | TRF d128 L2 **pre** 18ep | 3.32M | 18 | 8.2 | 0.8296 | 13 | 0.8664 | **0.8566** | 0.8566 | 0.8618 | 0.8309 |
 | TRF d256 L4 **pre** 18ep | 6.10M | 18 | 23.2 | 0.8224 | 12 | 0.8600 | **0.8545** | 0.8545 | 0.8590 | 0.8321 |
+| [BERT-base-uncased pooled CLS](outputs_bert/training_log.json) | 109.48M | 4 | 143.1 | 0.9320 | 4 | **0.9436** | 未评估 | — | — | — |
 
-**最好的单模型是 BiLSTM 跑满 18 个 epoch，test 0.8846。**
+**已有 test 报告中最好的单模型是 BiLSTM 跑满 18 个 epoch，test 0.8846。**
+BERT 的验证结果更高，但不能与这个 test 数字直接相减。长短分组阈值属于旧的正则分词口径，
+也尚未计算 BERT 的分组结果。7.2–7.10 为原 GloVe 系列分析，BERT 新结论见 7.12。
 
 ### 7.2 结论 1：vanilla RNN 在 400 步的序列上塌了
 
@@ -613,7 +713,7 @@ epoch 才自己爬出来。d=128 / 2 层从来没出现过——**这是深度�
 两个都在噪声地板以下。**Pre-LN 买到的是"能可靠训练深栈"，不是"更高的准确率"**——
 在 2–4 层这个规模上，天花板不由优化能力决定。它的价值要到十几层才会显现。
 
-副产品：**Pre-LN 造出了这个项目唯一一次过拟合。** `outputs_trf_big_pre` 的 train loss
+副产品：**原 12 次 GloVe 运行中，大 Pre-LN 模型出现了明显的过拟合迹象。** `outputs_trf_big_pre` 的 train loss
 降到全部运行最低的 0.2917，val_loss 从第 15 个 epoch 起回升，val_acc 从 0.8600(ep12)
 退到 0.8516(ep18)。Post-LN 的迟钝在无意中起了正则化作用；修好优化路径后，6.1M 的
 模型终于开始背那 22,500 条影评。
@@ -648,6 +748,9 @@ NB-SVM）通常在 0.89–0.91，BERT 在 0.94–0.95。也就是说本项目最
 **情感分类里"哪些词出现了"贡献了绝大部分信号，序列结构的边际收益远小于直觉。**
 线性基线还没跑，见 6 节。
 
+新增 BERT 的 **0.9436 是本地 val，不是 test**，不能用它直接验证本节的外部 test 区间。
+上述“最好的神经网络”指原 GloVe 系列；目前仍缺本地线性基线和 BERT test 的同口径比较。
+
 ### 7.10 所有配对检验（McNemar，同一批 25,000 条 test）
 
 | 比较 | 差值 | 只有A对/只有B对 | p | |
@@ -673,12 +776,53 @@ McNemar 只在两个模型**意见不一致**的样本上做检验：一致的�
 
 ### 7.11 还欠着的
 
-- **多 seed。** 全部 12 次运行都是 seed=42。LSTM 领先 GRU 只有 0.74pp，不跑多 seed
+- **BERT test。** 为已按 val 选定的 checkpoint 补独立加载 / test 入口，先复核 val，再报告完整 test；不在 test 上挑 epoch 或调参。
+- **多 seed。** 当前 13 次运行都是 seed=42，BERT 也只有一组配置。LSTM 领先 GRU 只有 0.74pp，不跑多 seed
   就说不出这两个架构谁更好。这是目前信息量最高的一项。
 - **线性基线**（7.9）。
 - **Transformer 加正则**：大 Pre-LN 模型过拟合了，而它的 dropout 只有 0.1（RNN 是
   0.5）。`--dropout 0.3` 能同时回答"能不能压住"和"压住后容量是否终于有用"。
 - **更深的 Pre/Post 对照**：2→4 层看不出 Pre-LN 的价值，8 层大概率能看出来。
+
+### 7.12 新实验：BERT 全量微调明显提高验证集表现
+
+原始记录：[training_log.json](outputs_bert/training_log.json)。本次训练完成于 2026-09-10；
+以下损失均为包含 label smoothing 的样本平均交叉熵，Acc / F1 使用 0–1 小数表示。
+
+| Epoch | Train Loss | Val Loss | Val Acc | Val macro-F1 | 训练 + 验证耗时（秒） |
+|---|---:|---:|---:|---:|---:|
+| 1 | 0.3534 | 0.2497 | 0.9320 | 0.9320 | 142.3 |
+| 2 | 0.2253 | **0.2464** | 0.9384 | 0.9384 | 142.0 |
+| 3 | 0.1714 | 0.2564 | 0.9428 | 0.9428 | 144.7 |
+| **4** | **0.1461** | 0.2662 | **0.9436** | **0.9436** | 143.5 |
+
+**同一 val 上的提升：** 相比 18-epoch BiLSTM / BiGRU / d128 L2 Post-LN Transformer，
+BERT 分别高 **6.08 / 6.16 / 7.20pp**。甚至第一轮的 0.9320 已高于这三个旧基线的最佳 val。
+第 4 轮在 2,500 条 val 中正确 **2,359** 条、错误 **141** 条；18-epoch BiLSTM 最佳正确
+2,207 条，因此这一次验证集比较中少错 **152** 条。
+
+**不是单靠偏向某一类别。** 最佳 checkpoint 的 val 混淆矩阵为
+`[[1184, 66], [75, 1175]]`（行是真实类别、列是预测类别，顺序 negative / positive）。
+两类各 1,250 条，negative recall=0.9472、positive recall=0.9400，两边都保持较高召回。
+
+**训练 loss 继续下降，但验证 loss 与准确率开始分离。** Val Loss 在第 2 轮最低，
+后两轮上升；Val Acc 却从 0.9384 继续升到 0.9436。这提示概率置信度方面的泛化可能开始变差，
+但仅凭这些汇总指标不能确认具体原因，也不能说分类准确率已经下降。当前协议按 accuracy
+选模型，因此保留 epoch 4；若改按 loss 选择，会得到 epoch 2。不能根据尚未评估的 test 改选。
+
+**这支持“预训练表示 + 全量微调方案有效”，不证明某个单独因素的贡献。** BERT 不仅增加了
+预训练编码器，还同时改变了参数量、WordPiece 词表、窗口长度、pooling、batch 和优化器。
+旧实验仅有 GloVe 词向量预训练，RNN / 手写 Transformer 的上下文编码器从零学习。
+因此不能把这 6–7pp 全部归因于 Transformer 架构，也不能据此排除旧模型的其他改进空间。
+
+**4 epoch 不等于成本更低。** 日志中每轮训练 + 验证平均 **143.1 秒**，合计
+**572.5 秒（约 9 分 33 秒）**，不含数据准备、模型加载、保存 checkpoint 和训练结束后的
+最佳模型复核；原始预训练成本也不在其中。这是本次训练循环耗时，不是等配置速度测试。
+本次日志没有显存峰值，不能把显存估算写成实测结果。
+
+**结论边界：** 目前仅有 seed=42 的单次 BERT 运行，test、BERT pooling / 学习率消融和
+多 seed 均未完成。下一步先补完整 test 报告，再把后续超参数选择留在 val 上；不能据此宣布
+pooled CLS 优于 mean/max，或 `2e-5` 是最优学习率。
 
 ---
 
@@ -688,7 +832,8 @@ McNemar 只在两个模型**意见不一致**的样本上做检验：一致的�
 IMDB/
 ├── config.py                       所有超参 + 测得的语料统计（带出处）
 ├── train.py                        训练入口（--cell / --model / --hidden-size ...）
-├── eval.py                         评估入口，唯一读 test.csv 的地方
+├── train_bert.py                   BERT 全量微调入口；训练后复核最佳 val
+├── eval.py                         GloVe 系列 checkpoint 的评估入口（不支持 BERT）
 ├── run_all.ps1                     四个实验串行跑完 + 评估
 ├── dataset/
 │   ├── imdb.py                     下载、合并成 csv、清洗、切分、Dataset、collate
@@ -697,11 +842,16 @@ IMDB/
 │   └── data/imdb/{train,test}.csv  合并后的语料（各 25,000 行）
 ├── model/                          RNN 路径：embedding / encoder / head
 ├── model_transformer/              手写 Transformer（transformer_naive.py 是核心）
+├── model_bert/
+│   ├── wordpiece.py                BERT 分词、head+tail 截断、Dataset
+│   └── bert_classifier.py          预训练 BERT + pooler + 复用的二分类 head
+├── outputs_bert/                   BERT best.pt、训练日志和 val 曲线 / 混淆矩阵
 ├── predict/predict.py              推理 + 错误样本查看
 └── utils/                          下载器、指标、可视化
 ```
 
-GloVe 不在本项目里，复用 `../SST-2/dataset/data/glove/`。
+GloVe 不在本项目里，复用 `../SST-2/dataset/data/glove/`；BERT 不使用 GloVe，也不生成
+项目自建的 `vocab.json`，加载权重时需要使用日志中同名 checkpoint 的 tokenizer。
 
 ---
 
@@ -714,13 +864,17 @@ GloVe 不在本项目里，复用 `../SST-2/dataset/data/glove/`。
 | 长度分布、`<unk>` 率、截断率、重复统计 | `python dataset/imdb.py` |
 | GloVe 覆盖率、词向量语义探针 | `python dataset/glove.py` |
 | 词表 min_freq 扫描、`<br />` 占比、MAX_LEN 权衡表 | 一次性统计脚本，结论已写入 [config.py](config.py) 注释 |
-| 参数量、显存峰值 | 直接实例化模型后 `sum(p.numel() ...)` |
+| 参数量 | 模型参数求和；BERT 另记录在 `outputs_bert/training_log.json` 的 `meta.model_cfg.params` |
+| 显存峰值 | 第 3.3 节保留旧模型的历史前向测量；BERT 日志未记录，参数求和不能测出显存峰值 |
 | ms/步、秒/epoch | 12 步微基准取后 9 步均值（第 3.4 节）；第 7 节的秒/epoch 是训练日志里的实测均值 |
 | Val Acc / 最佳 epoch / 每轮曲线 | 各 `outputs_*/training_log.json` |
 | Test Acc / F1 / 混淆矩阵 | `python eval.py ... --split test --save-cm` |
 | 长短影评分组准确率、McNemar 配对检验 | 逐条推理已训练的 checkpoint 后在预测数组上统计（不训练） |
+| BERT 配置、逐轮 loss / val 指标 / 耗时、最佳模型混淆矩阵 | [outputs_bert/training_log.json](outputs_bert/training_log.json) 的 `meta` / `history`；没有 test 指标 |
+| BERT 数据流与 pooled CLS 结构 | [model_bert/wordpiece.py](model_bert/wordpiece.py)、[model_bert/bert_classifier.py](model_bert/bert_classifier.py)、[model/head.py](model/head.py) |
 
-第 7 节的每个数字都对应 `outputs_*/` 里的一次真实运行，目录名在表格首列。
+第 7 节新增 BERT 数字来自现有训练日志或由其计算，旧 GloVe test 数据沿用原报告。
+本次仅更新本 README，没有重新训练、执行 test、修改配置或覆盖任何 checkpoint / 实验日志。
 
 ---
 
