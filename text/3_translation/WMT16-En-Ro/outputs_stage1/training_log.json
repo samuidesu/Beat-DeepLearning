@@ -1,0 +1,97 @@
+[
+  {
+    "epoch": 0,
+    "stage": 1,
+    "train": {
+      "loss": 4.705328383488751,
+      "nll": 3.917861886088788,
+      "perplexity": 50.29279800749227,
+      "steps": 19058,
+      "global_step": 19058,
+      "target_tokens": 18930559,
+      "seconds": 802.0348327159882
+    },
+    "validation": {
+      "loss": 3.8238624757079687,
+      "nll": 3.8238624757079687,
+      "perplexity": 45.78069408424439,
+      "target_tokens": 73805
+    }
+  },
+  {
+    "epoch": 1,
+    "stage": 1,
+    "train": {
+      "loss": 2.825443758527784,
+      "nll": 1.7478550390689709,
+      "perplexity": 5.742272506685281,
+      "steps": 19058,
+      "global_step": 38116,
+      "target_tokens": 18930559,
+      "seconds": 817.0932908058167
+    },
+    "validation": {
+      "loss": 3.1629044440386864,
+      "nll": 3.1629044440386864,
+      "perplexity": 23.639154920583902,
+      "target_tokens": 73805
+    }
+  },
+  {
+    "epoch": 2,
+    "stage": 1,
+    "train": {
+      "loss": 2.525880722612137,
+      "nll": 1.4129078516770355,
+      "perplexity": 4.107883168542227,
+      "steps": 19058,
+      "global_step": 57174,
+      "target_tokens": 18930559,
+      "seconds": 948.5963592529297
+    },
+    "validation": {
+      "loss": 2.8653924004768796,
+      "nll": 2.8653924004768796,
+      "perplexity": 17.555940812694832,
+      "target_tokens": 73805
+    }
+  },
+  {
+    "epoch": 3,
+    "stage": 1,
+    "train": {
+      "loss": 2.3609882297840152,
+      "nll": 1.228854654190305,
+      "perplexity": 3.4173132885333746,
+      "steps": 19058,
+      "global_step": 76232,
+      "target_tokens": 18930559,
+      "seconds": 803.3454325199127
+    },
+    "validation": {
+      "loss": 2.6881571112379423,
+      "nll": 2.6881571112379423,
+      "perplexity": 14.704552081228334,
+      "target_tokens": 73805
+    }
+  },
+  {
+    "epoch": 4,
+    "stage": 1,
+    "train": {
+      "loss": 2.241360181865397,
+      "nll": 1.094104558973083,
+      "perplexity": 2.986507244609296,
+      "steps": 19058,
+      "global_step": 95290,
+      "target_tokens": 18930559,
+      "seconds": 820.7923150062561
+    },
+    "validation": {
+      "loss": 2.619954428037374,
+      "nll": 2.619954428037374,
+      "perplexity": 13.735097635459047,
+      "target_tokens": 73805
+    }
+  }
+]

@@ -1,0 +1,86 @@
+{
+  "date": "2026-09-18",
+  "checkpoint": "outputs_stage2/best.pt",
+  "selection": "Minimum validation NLL, stage 2 epoch index 4 (fifth epoch).",
+  "config_override": {
+    "lengths.max_eval_target_length": {
+      "checkpoint": 256,
+      "evaluation": 512
+    },
+    "dataset.cache_dir": {
+      "checkpoint": null,
+      "evaluation": "C:\\code\\beatDL\\text\\3_translation\\WMT16-En-Ro\\outputs_stage2\\hf_dataset_cache"
+    }
+  },
+  "reason": "One official test reference contains 273 target tokens including BOS/EOS; retain every example and reference without truncation.",
+  "generation_settings_unchanged_from_validation": {
+    "decoding": "beam",
+    "num_beams": 4,
+    "length_penalty": 1.0,
+    "max_new_tokens": 256
+  },
+  "command": "python evaluate.py --weights outputs_stage2/best.pt --config outputs_stage2/config_test.json --split test --decoding beam --num-beams 4 --length-penalty 1.0 --max-new-tokens 256 --save outputs_stage2/eval_test_beam.json",
+  "offline": true,
+  "cache_copy": {
+    "source": "C:\\Users\\Xiaochuan\\.cache\\huggingface\\datasets\\wmt___wmt16\\ro-en\\0.0.0\\41d8a4013aa1489f28fea60ec0932af246086482",
+    "destination": "C:\\code\\beatDL\\text\\3_translation\\WMT16-En-Ro\\outputs_stage2\\hf_dataset_cache\\wmt___wmt16\\ro-en\\0.0.0\\41d8a4013aa1489f28fea60ec0932af246086482",
+    "official_split_files_sha256_match": true
+  },
+  "checkpoint_sha256": "b1ae31393626747f65c9babcccd507b0e31984ddfd3f821afd7e2d0847d461eb",
+  "environment": {
+    "torch": "2.11.0+cu128",
+    "cuda": "12.8",
+    "transformers": "5.17.0",
+    "sacrebleu": "2.6.0"
+  },
+  "checkpoint_metadata": {
+    "stage": 2,
+    "epoch_zero_based": 4,
+    "global_step": 95290,
+    "target_vocab_size": 16000
+  },
+  "completed_at": "2026-09-18T00:33:37.463978-05:00",
+  "result_file": "outputs_stage2\\eval_test_beam.json",
+  "result_sha256": "f54faa0c0881e838838ef7519eb6058f9d19cef242f9d683bcc87a2d3ca2192d",
+  "configuration_parser_note": "The YAML loader reads stage2.encoder_lr from JSON as the string 2e-05; its numeric value is unchanged and learning rates are unused during evaluation.",
+  "verification": {
+    "all_1999_examples_present": true,
+    "references_match_cleaned_official_test_in_order": true,
+    "metrics_recomputed_from_saved_predictions": true,
+    "ppl_equals_exp_nll": true,
+    "only_documented_effective_config_overrides": true
+  },
+  "results": {
+    "num_examples": 1999,
+    "generations_without_eos": 0,
+    "nll": 2.2702278693052196,
+    "perplexity": 9.681606703729011,
+    "metrics": {
+      "bleu": 22.58978819274449,
+      "bleu_signature": "nrefs:1|case:mixed|eff:no|tok:13a|smooth:exp|version:2.6.0",
+      "bleu_detail": "BLEU = 22.59 53.4/28.8/16.9/10.0 (BP = 1.000 ratio = 1.020 hyp_len = 49948 ref_len = 48945)",
+      "chrf": 49.89905180415503,
+      "chrf_word_order": 2,
+      "chrf_signature": "nrefs:1|case:mixed|eff:yes|nc:6|nw:2|space:no|version:2.6.0",
+      "num_sentences": 1999,
+      "empty_hypotheses": 0
+    },
+    "data_report": {
+      "train_filtering": null,
+      "eval_checks": {
+        "test": {
+          "split": "test",
+          "total": 1999,
+          "empty_pairs": 0,
+          "source_over_max_positions": 0,
+          "target_over_max_eval_length": 0,
+          "max_source_positions": 512,
+          "max_eval_target_length": 512,
+          "source_max": 175,
+          "target_max": 273,
+          "violations": 0
+        }
+      }
+    }
+  }
+}

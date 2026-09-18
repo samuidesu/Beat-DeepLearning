@@ -1,0 +1,85 @@
+{
+  "dataset": {
+    "name": "wmt16",
+    "config": "ro-en",
+    "source_language": "en",
+    "target_language": "ro",
+    "cache_dir": null,
+    "num_proc": 1
+  },
+  "source_tokenizer": {
+    "name": "google-bert/bert-base-cased"
+  },
+  "model": {
+    "dim": 768,
+    "group": 12,
+    "decoder_layers": 6,
+    "dropout": 0.1,
+    "norm": "pre",
+    "max_target_positions": 512
+  },
+  "target_tokenizer": {
+    "type": "sentencepiece",
+    "model_type": "bpe",
+    "vocab_size": 16000,
+    "normalization_rule_name": "nmt_nfkc",
+    "lowercase": false,
+    "character_coverage": 1.0,
+    "input_sentence_size": 0,
+    "shuffle_input_sentence": true,
+    "model_prefix": "spm_ro"
+  },
+  "lengths": {
+    "max_train_source_length": 128,
+    "max_train_target_length": 128,
+    "long_train_pair_policy": "filter",
+    "evaluation_overlength_policy": "error",
+    "max_source_positions": 512,
+    "max_eval_target_length": 256
+  },
+  "training": {
+    "seed": 42,
+    "device": "auto",
+    "batch_size": 32,
+    "eval_batch_size": 32,
+    "num_workers": 0,
+    "grad_clip": 1.0,
+    "mixed_precision": true,
+    "log_every": 100,
+    "output_dir": "outputs_stage{stage}"
+  },
+  "stage1": {
+    "freeze_encoder": true,
+    "decoder_lr": 0.0003,
+    "epochs": 5,
+    "warmup_ratio": 0.1,
+    "weight_decay": 0.01,
+    "label_smoothing": 0.1
+  },
+  "stage2": {
+    "freeze_encoder": false,
+    "encoder_lr": 2e-05,
+    "decoder_lr": 0.0001,
+    "epochs": 5,
+    "warmup_ratio": 0.05,
+    "weight_decay": 0.01,
+    "label_smoothing": 0.1
+  },
+  "evaluation": {
+    "metrics": [
+      "sacrebleu",
+      "chrf"
+    ],
+    "chrf_word_order": 2
+  },
+  "generation": {
+    "max_new_tokens": 256,
+    "num_beams": 4,
+    "length_penalty": 1.0
+  },
+  "paths": {
+    "artifacts_dir": "artifacts",
+    "target_tokenizer_dir": "artifacts/tokenizer_ro",
+    "dataset_stats_path": "artifacts/dataset_stats.json"
+  }
+}

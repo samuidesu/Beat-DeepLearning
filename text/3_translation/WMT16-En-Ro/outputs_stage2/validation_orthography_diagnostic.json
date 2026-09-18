@@ -1,0 +1,106 @@
+{
+  "purpose": "Diagnostic rescoring only; checkpoint, tokenizer, and raw evaluation reports are unchanged.",
+  "split": "validation",
+  "normalization": {
+    "U+015F": "U+0219",
+    "U+015E": "U+0218",
+    "U+0163": "U+021B",
+    "U+0162": "U+021A"
+  },
+  "runs": [
+    {
+      "stage": 1,
+      "source_report": "outputs_stage1\\eval_validation_beam.json",
+      "num_examples": 1999,
+      "raw_metrics": {
+        "bleu": 19.458215849866328,
+        "bleu_signature": "nrefs:1|case:mixed|eff:no|tok:13a|smooth:exp|version:2.6.0",
+        "bleu_detail": "BLEU = 19.46 49.7/25.1/14.2/8.1 (BP = 1.000 ratio = 1.012 hyp_len = 51922 ref_len = 51300)",
+        "chrf": 45.815839636722686,
+        "chrf_word_order": 2,
+        "chrf_signature": "nrefs:1|case:mixed|eff:yes|nc:6|nw:2|space:no|version:2.6.0",
+        "num_sentences": 1999,
+        "empty_hypotheses": 0
+      },
+      "normalized_metrics": {
+        "bleu": 23.37923183317531,
+        "bleu_signature": "nrefs:1|case:mixed|eff:no|tok:13a|smooth:exp|version:2.6.0",
+        "bleu_detail": "BLEU = 23.38 53.4/29.0/17.7/10.9 (BP = 1.000 ratio = 1.012 hyp_len = 51922 ref_len = 51300)",
+        "chrf": 48.51041111801126,
+        "chrf_word_order": 2,
+        "chrf_signature": "nrefs:1|case:mixed|eff:yes|nc:6|nw:2|space:no|version:2.6.0",
+        "num_sentences": 1999,
+        "empty_hypotheses": 0
+      },
+      "character_counts": {
+        "hypotheses": {
+          "U+015F": 2026,
+          "U+015E": 28,
+          "U+0163": 2299,
+          "U+0162": 1,
+          "U+0219": 67,
+          "U+0218": 0,
+          "U+021B": 78,
+          "U+021A": 0
+        },
+        "references": {
+          "U+015F": 0,
+          "U+015E": 0,
+          "U+0163": 0,
+          "U+0162": 0,
+          "U+0219": 2033,
+          "U+0218": 44,
+          "U+021B": 1763,
+          "U+021A": 11
+        }
+      }
+    },
+    {
+      "stage": 2,
+      "source_report": "outputs_stage2\\eval_validation_beam.json",
+      "num_examples": 1999,
+      "raw_metrics": {
+        "bleu": 23.460968686295676,
+        "bleu_signature": "nrefs:1|case:mixed|eff:no|tok:13a|smooth:exp|version:2.6.0",
+        "bleu_detail": "BLEU = 23.46 54.2/29.7/17.7/10.7 (BP = 1.000 ratio = 1.004 hyp_len = 51493 ref_len = 51300)",
+        "chrf": 50.51485802864883,
+        "chrf_word_order": 2,
+        "chrf_signature": "nrefs:1|case:mixed|eff:yes|nc:6|nw:2|space:no|version:2.6.0",
+        "num_sentences": 1999,
+        "empty_hypotheses": 0
+      },
+      "normalized_metrics": {
+        "bleu": 28.152514390552206,
+        "bleu_signature": "nrefs:1|case:mixed|eff:no|tok:13a|smooth:exp|version:2.6.0",
+        "bleu_detail": "BLEU = 28.15 58.2/34.2/22.0/14.3 (BP = 1.000 ratio = 1.004 hyp_len = 51493 ref_len = 51300)",
+        "chrf": 53.54313753297001,
+        "chrf_word_order": 2,
+        "chrf_signature": "nrefs:1|case:mixed|eff:yes|nc:6|nw:2|space:no|version:2.6.0",
+        "num_sentences": 1999,
+        "empty_hypotheses": 0
+      },
+      "character_counts": {
+        "hypotheses": {
+          "U+015F": 2040,
+          "U+015E": 32,
+          "U+0163": 2318,
+          "U+0162": 4,
+          "U+0219": 67,
+          "U+0218": 1,
+          "U+021B": 110,
+          "U+021A": 5
+        },
+        "references": {
+          "U+015F": 0,
+          "U+015E": 0,
+          "U+0163": 0,
+          "U+0162": 0,
+          "U+0219": 2033,
+          "U+0218": 44,
+          "U+021B": 1763,
+          "U+021A": 11
+        }
+      }
+    }
+  ]
+}

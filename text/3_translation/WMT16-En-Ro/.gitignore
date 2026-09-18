@@ -1,0 +1,12 @@
+# The repository root .gitignore excludes *.txt everywhere (GloVe vectors,
+# CoNLL corpora). This file is tracked on purpose.
+!requirements.txt
+
+# Generated: the SentencePiece model, its vocab, and the length statistics.
+# Rebuilt deterministically by scripts/train_target_tokenizer.py and
+# scripts/analyze_lengths.py; keep them next to their checkpoints locally.
+artifacts/*
+!artifacts/.gitkeep
+
+# Checkpoints, logs, predictions.
+# outputs_*/

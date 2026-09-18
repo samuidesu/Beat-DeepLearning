@@ -1,0 +1,27 @@
+{
+  "train_filtering": {
+    "total": 610320,
+    "removed_empty_source": 0,
+    "removed_empty_target": 0,
+    "removed_source_too_long": 329,
+    "removed_target_too_long": 446,
+    "removed_either_too_long": 492,
+    "final": 609828,
+    "max_train_source_length": 128,
+    "max_train_target_length": 128
+  },
+  "eval_checks": {
+    "validation": {
+      "split": "validation",
+      "total": 1999,
+      "empty_pairs": 0,
+      "source_over_max_positions": 0,
+      "target_over_max_eval_length": 0,
+      "max_source_positions": 512,
+      "max_eval_target_length": 256,
+      "source_max": 150,
+      "target_max": 176,
+      "violations": 0
+    }
+  }
+}

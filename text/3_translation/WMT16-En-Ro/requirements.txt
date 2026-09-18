@@ -1,0 +1,12 @@
+# Minimal, ordinary PyTorch. No Lightning, no training framework.
+torch>=2.4
+transformers>=4.40
+datasets>=2.18
+sentencepiece>=0.2.0
+sacrebleu>=2.4
+pyyaml>=6.0
+tqdm>=4.66
+numpy>=1.24
+
+# Optional, not required by any code here:
+#   unbabel-comet>=2.2   neural MT metric (~2 GB model), see evaluation/metrics.py
